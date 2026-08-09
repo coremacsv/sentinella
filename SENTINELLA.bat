@@ -22,8 +22,8 @@ if %errorLevel% neq 0 (
     exit /b
 )
 
-rem La schermata iniziale a blocchi ha bisogno di larghezza: senza questo
-rem su una finestra da 80 colonne il titolo andrebbe a capo e si sfalderebbe.
-mode con: cols=100 lines=45 >nul 2>&1
+rem La schermata iniziale affianca la vespa alla scritta e occupa circa 96
+rem colonne: su una finestra da 80 andrebbe a capo e si sfalderebbe.
+mode con: cols=110 lines=45 >nul 2>&1
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0sentinella.ps1"

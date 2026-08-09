@@ -1,4 +1,4 @@
-<img src="sentinella.png" width="130" align="right" alt="Logo di Sentinella: uno scudo con un occhio">
+<img src="sentinella.png" width="130" align="right" alt="Logo di Sentinella: una vespa">
 
 # Sentinella
 
@@ -13,13 +13,13 @@
 Nessuna installazione, nessun account, niente che esca dal tuo computer.
 
 ```
-  ███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗     ██╗      █████╗
-  ██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝██║     ██║     ██╔══██╗
-  ███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║     ██║     ███████║
-  ╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║     ██║     ██╔══██║
-  ███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗███████╗██║  ██║
-  ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝
-                                                                      ~ by lozy ~
+  ╲╲ ▄▄ ╱╱    ███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗     ██╗      █████╗
+   ◥█████◤    ██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝██║     ██║     ██╔══██╗
+    █████     ███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║     ██║     ███████║
+    ▐███▌     ╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║     ██║     ██╔══██║
+    ▐▒▒▒▌     ███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗███████╗██║  ██║
+     ╲▼╱      ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝
+                                                                             ~ by lozy ~
 
   [ sicurezza e salute del tuo PC ]  v2.0
 ```
@@ -30,7 +30,7 @@ Nessuna installazione, nessun account, niente che esca dal tuo computer.
 
 È nato da un'infezione vera: un finto *mod menu* per un videogioco, scaricato **alle 3:38 di notte**, che in pochi secondi ha copiato password del browser, cookie di sessione e token di accesso, e li ha spediti a chi l'aveva confezionato.
 
-Da lì il nome: una sentinella è quella che veglia mentre gli altri dormono.
+Da lì il nome: una sentinella è quella che veglia mentre gli altri dormono. E la vespa del logo, che il nido non lo attacca — lo difende.
 
 Due lezioni di quella notte sono diventate le due caratteristiche che distinguono Sentinella da un normale antivirus:
 

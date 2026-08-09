@@ -201,25 +201,43 @@ function Firma([int]$bordoDestro) {
 }
 function Insegna {
     $w = Larghezza
-    # I caratteri a blocchi richiedono una finestra larga: sotto gli 84
-    # colonne si spezzerebbero, quindi si passa a una versione compatta.
-    if ($w -ge 84) {
-        $arte = @(
-            '███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗     ██╗      █████╗ ',
-            '██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝██║     ██║     ██╔══██╗',
-            '███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║     ██║     ███████║',
-            '╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║     ██║     ██╔══██║',
-            '███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗███████╗██║  ██║',
-            '╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝'
-        )
-        $colori = @('DarkCyan','DarkCyan','Cyan','Cyan','Blue','DarkBlue')
+    $arte = @(
+        '███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗     ██╗      █████╗ ',
+        '██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝██║     ██║     ██╔══██╗',
+        '███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║     ██║     ███████║',
+        '╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║     ██║     ██╔══██║',
+        '███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗███████╗██║  ██║',
+        '╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝'
+    )
+    # La vespa: ali arretrate, torace, addome a strisce, pungiglione.
+    $vespa = @(
+        '  ╲╲ ▄▄ ╱╱  ',
+        '   ◥█████◤   ',
+        '    █████    ',
+        '    ▐███▌    ',
+        '    ▐▒▒▒▌    ',
+        '     ╲▼╱     '
+    )
+    $colori = @('DarkCyan','DarkCyan','Cyan','Cyan','Blue','DarkBlue')
+    # Servono circa 100 colonne per vespa e scritta affiancate; sotto quella
+    # soglia si toglie prima la vespa, poi si passa alla versione compatta.
+    if ($w -ge 100) {
+        Write-Host ""
+        for ($i = 0; $i -lt $arte.Count; $i++) {
+            Write-Host ("  " + $vespa[$i] + "  ") -NoNewline -ForegroundColor Yellow
+            Write-Host $arte[$i] -ForegroundColor $colori[$i]
+        }
+        Firma 96
+    } elseif ($w -ge 84) {
         Write-Host ""
         for ($i = 0; $i -lt $arte.Count; $i++) { Write-Host ("  " + $arte[$i]) -ForegroundColor $colori[$i] }
         Firma 81
     } else {
         Write-Host ""
-        Write-Host "  ##   SENTINELLA   ##" -ForegroundColor Cyan
-        Firma 23
+        Write-Host "   ╲▄╱   " -ForegroundColor Yellow
+        Write-Host "  ▐███▌   SENTINELLA" -ForegroundColor Cyan
+        Write-Host "   ╲▼╱   " -ForegroundColor Yellow
+        Firma 21
     }
     Write-Host ""
     Write-Host "  " -NoNewline
