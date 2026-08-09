@@ -27,7 +27,7 @@ Nato dopo un'infezione vera: un finto mod menu scaricato alle 3:38 di notte, inv
 
 `Crea-collegamento.bat` mette l'icona sul Desktop.
 
-Il report esce a schermo — verdetto, quadro dei controlli, e per ogni allarme una spiegazione in italiano semplice più l'azione concreta da fare. Alla fine puoi salvarlo in `.txt`, in `.html`, entrambi, o niente.
+Il report esce a schermo — verdetto, quadro dei controlli, e per ogni allarme una spiegazione in italiano semplice più l'azione concreta da fare. Alla fine puoi salvarlo in `.txt`, in `.html`, entrambi, o niente: se scegli di salvarlo, finisce in `Desktop\Sentinella-Report\`, con `Testo` e `Pagine web` in due sottocartelle separate — non file sparsi sul Desktop.
 
 ## Tre modalità
 

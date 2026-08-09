@@ -1205,9 +1205,16 @@ $vuoleTxt  = $risposta -match '^\s*[TtEeSsYy]'
 $vuoleHtml = $risposta -match '^\s*[HhEe]'
 if ($vuoleTxt -or $vuoleHtml) {
     # Il Desktop puo' essere reindirizzato su OneDrive: chiediamolo a Windows.
+    # Tutto dentro UNA cartella (non file sparsi sul Desktop), divisa per tipo:
+    # cosi' chi vuole solo guardare i testi o solo le pagine web sa dove andare.
     $desktop = [Environment]::GetFolderPath('Desktop')
-    $base = Join-Path $desktop ("Sentinella-Report-" + (Get-Date -Format 'yyyyMMdd-HHmm'))
-    $file = "$base.txt"
+    $cartellaReport = Join-Path $desktop 'Sentinella-Report'
+    $cartellaTesto  = Join-Path $cartellaReport 'Testo'
+    $cartellaWeb    = Join-Path $cartellaReport 'Pagine web'
+    if ($vuoleTxt  -and -not (Test-Path -LiteralPath $cartellaTesto)) { New-Item -ItemType Directory -Path $cartellaTesto -Force | Out-Null }
+    if ($vuoleHtml -and -not (Test-Path -LiteralPath $cartellaWeb))   { New-Item -ItemType Directory -Path $cartellaWeb   -Force | Out-Null }
+    $nomeFile = "Sentinella-Report-" + (Get-Date -Format 'yyyyMMdd-HHmm')
+    $file = Join-Path $cartellaTesto "$nomeFile.txt"
     $testa = @()
     $testa += "============================================================"
     $testa += " SENTINELLA $VERSIONE - REPORT           by lozy"
@@ -1269,7 +1276,7 @@ if ($vuoleTxt -or $vuoleHtml) {
             if ($null -eq $s) { return '' }
             return ([string]$s).Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;')
         }
-        $fileH = "$base.html"
+        $fileH = Join-Path $cartellaWeb "$nomeFile.html"
         if ($gravi -eq 0 -and $lievi -eq 0) { $vClasse = 'ok';   $vTesto = 'TUTTO REGOLARE'; $vSub = 'Nessun segno di infezione, nessun problema di salute.' }
         elseif ($gravi -eq 0)               { $vClasse = 'warn'; $vTesto = 'NESSUN PROBLEMA GRAVE'; $vSub = "$lievi punti da guardare, senza fretta." }
         else                                { $vClasse = 'bad';  $vTesto = "$gravi PROBLEMI GRAVI"; $vSub = 'Le voci in rosso vanno affrontate.' }
