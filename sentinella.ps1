@@ -209,22 +209,30 @@ function Insegna {
         '███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗███████╗██║  ██║',
         '╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝'
     )
-    # La vespa: ali arretrate, torace, addome a strisce, pungiglione.
+    # Gradiente monotono chiaro->scuro dall'alto in basso. Prima andava
+    # scuro-scuro-CHIARO-CHIARO-scuro-scuro: il salto di luminosita' a
+    # meta' rendeva la scritta "a bande" invece che sfumata.
+    $colori = @('Cyan','Cyan','DarkCyan','DarkCyan','Blue','DarkBlue')
+    # La vespa: SOLO caratteri del blocco CP437 (mattoni/mezzi mattoni),
+    # niente diagonali (╲╱◥◤▼). Quei caratteri non fanno parte del set
+    # box-drawing/block classico: il terminale li disegna con un font
+    # sostitutivo diverso da quello usato per il resto della riga, ed
+    # e' quello che produceva la macchia sfocata al posto della vespa.
     $vespa = @(
-        '  ╲╲ ▄▄ ╱╱  ',
-        '   ◥█████◤   ',
-        '    █████    ',
-        '    ▐███▌    ',
-        '    ▐▒▒▒▌    ',
-        '     ╲▼╱     '
+        '    \  /    ',
+        '   ██████   ',
+        '  ████████  ',
+        '  ████████  ',
+        '  ████████  ',
+        '     vv     '
     )
-    $colori = @('DarkCyan','DarkCyan','Cyan','Cyan','Blue','DarkBlue')
+    $coloriVespa = @('White','White','White','DarkBlue','DarkYellow','DarkYellow')
     # Servono circa 100 colonne per vespa e scritta affiancate; sotto quella
     # soglia si toglie prima la vespa, poi si passa alla versione compatta.
     if ($w -ge 100) {
         Write-Host ""
         for ($i = 0; $i -lt $arte.Count; $i++) {
-            Write-Host ("  " + $vespa[$i] + "  ") -NoNewline -ForegroundColor Yellow
+            Write-Host ("  " + $vespa[$i] + "  ") -NoNewline -ForegroundColor $coloriVespa[$i]
             Write-Host $arte[$i] -ForegroundColor $colori[$i]
         }
         Firma 96
@@ -234,9 +242,9 @@ function Insegna {
         Firma 81
     } else {
         Write-Host ""
-        Write-Host "   ╲▄╱   " -ForegroundColor Yellow
-        Write-Host "  ▐███▌   SENTINELLA" -ForegroundColor Cyan
-        Write-Host "   ╲▼╱   " -ForegroundColor Yellow
+        Write-Host "   \  /   " -ForegroundColor White
+        Write-Host "  ██████   SENTINELLA" -ForegroundColor Cyan
+        Write-Host "    vv    " -ForegroundColor DarkYellow
         Firma 21
     }
     Write-Host ""
