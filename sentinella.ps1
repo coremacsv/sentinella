@@ -876,8 +876,16 @@ function ImprontaSistema {
     $h['attivita'] = @($tk | Sort-Object)
 
     $sv = @()
-    foreach ($s in (Get-CimInstance Win32_Service -ErrorAction SilentlyContinue)) { $sv += "$($s.Name) -> $($s.PathName)" }
-    $h['servizi'] = @($sv | Sort-Object)
+    foreach ($s in (Get-CimInstance Win32_Service -ErrorAction SilentlyContinue)) {
+        # I servizi "per utente" di Windows (OneSyncSvc, WpnUserService, CaptureService...)
+        # ricevono un codice casuale di 5 caratteri in coda al nome, rigenerato a ogni
+        # avvio (es. OneSyncSvc_71b51 diventa OneSyncSvc_a92f3 al riavvio successivo).
+        # Senza toglierlo, ogni singolo riavvio del PC faceva sembrare "nuovi" una
+        # ventina di servizi Microsoft legittimi tutti insieme: rumore, non un segnale.
+        $nomeStabile = $s.Name -replace '_[0-9a-f]{5}$', ''
+        $sv += "$nomeStabile -> $($s.PathName)"
+    }
+    $h['servizi'] = @($sv | Sort-Object -Unique)
 
     $es = @()
     if ((Esiste 'Get-MpPreference') -and $admin) {
