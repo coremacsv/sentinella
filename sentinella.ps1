@@ -1,7 +1,7 @@
 ﻿# =====================================================================
 #
 #   SENTINELLA  -  sicurezza e salute del tuo PC
-#   Versione 2.0  -  by lozy
+#   Versione 2.1  -  by lozy
 #
 #   Uno strumento unico che risponde a due domande:
 #     "Il mio PC e' infetto?"  e  "Il mio PC sta bene?"
@@ -19,7 +19,7 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference    = 'SilentlyContinue'
-$VERSIONE = '2.0'
+$VERSIONE = '2.1'
 
 $allarmi  = New-Object System.Collections.ArrayList   # sicurezza, grave
 $sospetti = New-Object System.Collections.ArrayList   # sicurezza, da guardare
@@ -123,6 +123,12 @@ $percorsiSospetti = @(
     "$([Environment]::GetFolderPath('UserProfile'))\Downloads",
     "$env:PUBLIC", "$env:ProgramData"
 )
+# Usata sia dal controllo "Programmi installati di recente" (Parte B, saltata
+# in Lampo) sia dal confronto "Novita' dall'ultima scansione" (Parte D,
+# sempre attivo): definita qui in cima cosi' e' disponibile in ogni modalita'.
+$reg = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+         'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')
 function EsuPercorsoSospetto($p) {
     if ([string]::IsNullOrWhiteSpace($p)) { return $false }
     foreach ($s in $percorsiSospetti) { if ($p -like "$s*") { return $true } }
@@ -263,18 +269,25 @@ Insegna
 Write-Host ""
 Write-Host "   utente    : " -NoNewline -ForegroundColor DarkGray; Write-Host "$env:USERNAME@$env:COMPUTERNAME" -ForegroundColor Gray
 Write-Host "   data      : " -NoNewline -ForegroundColor DarkGray; Write-Host (Get-Date -Format 'dd/MM/yyyy HH:mm') -ForegroundColor Gray
-Write-Host "   controlli : " -NoNewline -ForegroundColor DarkGray; Write-Host "$TOTPASSI  (sicurezza + salute)" -ForegroundColor Gray
+Write-Host "   controlli : " -NoNewline -ForegroundColor DarkGray; Write-Host "fino a $TOTPASSI, secondo la modalita'" -ForegroundColor Gray
 Write-Host "   modo      : " -NoNewline -ForegroundColor DarkGray; Write-Host "sola lettura - non cancella e non modifica nulla" -ForegroundColor Gray
 Write-Host ""
 Write-Host "   Scegli il tipo di scansione:" -ForegroundColor White
 Write-Host ""
-Write-Host "     [1]  RAPIDA" -ForegroundColor Green
+Write-Host "     [1]  LAMPO" -ForegroundColor Cyan
+Write-Host "          circa 15 secondi, nessuna scansione antivirus." -ForegroundColor DarkGray
+Write-Host "          I 12 segnali piu' gravi: esclusioni antivirus, avvio" -ForegroundColor DarkGray
+Write-Host "          automatico, attivita' pianificate, rete, account, e" -ForegroundColor DarkGray
+Write-Host "          cosa e' cambiato dall'ultima volta. Il controllo da" -ForegroundColor DarkGray
+Write-Host "          fare ogni volta che accendi il PC." -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "     [2]  RAPIDA" -ForegroundColor Green
 Write-Host "          circa 5 minuti." -ForegroundColor DarkGray
-Write-Host "          Tutti i $TOTPASSI controlli. L'antivirus esamina memoria," -ForegroundColor DarkGray
+Write-Host "          Tutti i 24 controlli. L'antivirus esamina memoria," -ForegroundColor DarkGray
 Write-Host "          punti di avvio e i file a rischio aggiunti di recente" -ForegroundColor DarkGray
 Write-Host "          su TUTTI i dischi." -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "     [2]  COMPLETA" -ForegroundColor Yellow
+Write-Host "     [3]  COMPLETA" -ForegroundColor Yellow
 Write-Host "          da 30 minuti a qualche ora." -ForegroundColor DarkGray
 Write-Host "          Come la rapida, ma l'antivirus apre OGNI file di" -ForegroundColor DarkGray
 Write-Host "          TUTTI i dischi. In piu': verifica dei file di sistema" -ForegroundColor DarkGray
@@ -282,12 +295,15 @@ Write-Host "          e storico errori esteso a 30 giorni." -ForegroundColor Dar
 Write-Host ""
 Write-Host "     [0]  Esci" -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "   Entrambe controllano tutti i dischi: cambia quanto a fondo." -ForegroundColor Gray
+Write-Host "   Tutte controllano ogni disco: cambia solo quanto a fondo." -ForegroundColor Gray
 Write-Host ""
-$scelta = Read-Host "   Scrivi 1, 2 o 0 e premi INVIO"
+$scelta = Read-Host "   Scrivi 1, 2, 3 o 0 e premi INVIO"
 if ($scelta -eq '0') { exit }
-$completa = ($scelta -eq '2')
-if ($completa) { $tipo = "COMPLETA"; $giorniLog = 30 } else { $tipo = "RAPIDA"; $giorniLog = 7 }
+$lampo    = ($scelta -eq '1')
+$completa = ($scelta -eq '3')
+if ($lampo)         { $tipo = "LAMPO";    $giorniLog = 7;  $TOTPASSI = 12 }
+elseif ($completa)  { $tipo = "COMPLETA"; $giorniLog = 30; $TOTPASSI = 24 }
+else                { $tipo = "RAPIDA";   $giorniLog = 7;  $TOTPASSI = 24 }
 
 Clear-Host
 Write-Host ""
@@ -467,6 +483,7 @@ foreach ($t in (Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' })) {
 }
 if ($b -eq 0) { Ok "Nessuna attivita' pianificata sospetta" }
 
+if (-not $lampo) {
 Titolo "Processi in esecuzione"
 $b = 0
 foreach ($p in (Get-Process | Where-Object { $_.Path } | Sort-Object ProcessName -Unique)) {
@@ -476,6 +493,7 @@ foreach ($p in (Get-Process | Where-Object { $_.Path } | Sort-Object ProcessName
     }
 }
 if ($b -eq 0) { Ok "Nessun processo non firmato da cartelle anomale" }
+}
 
 Titolo "Servizi e persistenza avanzata"
 $b = 0
@@ -492,6 +510,7 @@ $wmi = Get-CimInstance -Namespace root\subscription -ClassName __EventFilter | W
 if ($wmi) { foreach ($w in $wmi) { Attenzione "Sottoscrizione WMI non standard: $($w.Name) (tecnica di persistenza avanzata)" } }
 else { Ok "Nessuna persistenza WMI sospetta" }
 
+if (-not $lampo) {
 Titolo "Estensioni del browser"
 # Un'estensione malevola legge tutto quello che scrivi nel browser, password
 # comprese, e non compare da nessuna parte tra i programmi installati.
@@ -554,6 +573,7 @@ if (Test-Path -LiteralPath $ffBase) {
 if (-not $trovatoBrowser) { NonDisponibile "Nessun browser conosciuto trovato su questo utente" }
 elseif ($nuoveEst -eq 0) { Ok "$totEst estensioni in totale, nessuna aggiunta negli ultimi 45 giorni" }
 else { Nota "Controlla che le estensioni recenti le abbia installate tu." }
+}
 
 Titolo "Rete: file hosts, proxy, DNS"
 $fileHosts = "$env:SystemRoot\System32\drivers\etc\hosts"
@@ -584,7 +604,11 @@ if ($conn) {
         $nome = "PID $($g.Name)"
         if ($pr) { $nome = $pr.ProcessName }
         $ips = $g.Group | Select-Object -First 3 -ExpandProperty RemoteAddress | Sort-Object -Unique
-        $dest = (($ips | ForEach-Object { NomeHost $_ }) -join ', ')
+        # In Lampo si salta la risoluzione del nome (fino a 700ms per indirizzo,
+        # con molte connessioni aperte allunga troppo un controllo pensato per
+        # restare sotto i 15 secondi) e si mostra l'indirizzo cosi' com'e'.
+        if ($lampo) { $dest = ($ips -join ', ') }
+        else { $dest = (($ips | ForEach-Object { NomeHost $_ }) -join ', ') }
         if ($pr -and $pr.Path -and (EsuPercorsoSospetto $pr.Path) -and -not (FirmaValida $pr.Path)) {
             Allarme "$nome (non firmato, da cartella anomala) collegato a $dest  [SHA256 $(Impronta $pr.Path)]"
         } else { Nota "   $nome -> $dest" }
@@ -600,6 +624,7 @@ if (Esiste 'Get-LocalUser') {
     Nota "Se vedi un account che non hai creato tu, e' un problema serio."
 } else { NonDisponibile "Elenco account non disponibile su questo sistema" }
 
+if (-not $lampo) {
 # =====================================================================
 Sezione "PARTE B  -  SALUTE DEL PC"
 # =====================================================================
@@ -695,9 +720,6 @@ if ($riavvio) { Avviso "C'e' un riavvio in sospeso: alcuni aggiornamenti non son
 else { Ok "Nessun riavvio in sospeso" }
 
 Titolo "Programmi installati di recente (30 giorni)"
-$reg = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
-         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
-         'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')
 $rec = @()
 foreach ($r in $reg) {
     foreach ($a in (Get-ItemProperty -Path $r)) {
@@ -818,6 +840,7 @@ if (Esiste 'Get-MpThreat') {
     $attive = Get-MpThreat | Where-Object { $_.IsActive -eq $true }
     if ($attive) { foreach ($t in $attive) { Allarme "MINACCIA ATTIVA: $($t.ThreatName)" } }
     else { Ok "Nessuna minaccia attiva rilevata" }
+}
 }
 
 # =====================================================================
@@ -1022,6 +1045,135 @@ if ($gravi -gt 0 -or $lievi -gt 0) {
     if ($avvisi.Count)   { Write-Host ""; Write-Host "     SALUTE DEL PC - da guardare" -ForegroundColor Yellow; foreach ($x in $avvisi) { Write-Host "       [!!] $x" -ForegroundColor Yellow } }
 }
 
+# ---------------------------------------------------------------------
+# "Cosa faccio adesso": una spiegazione in italiano semplice e un'azione
+# concreta per ogni controllo che ha trovato qualcosa, pensata per chi
+# non mastica informatica. Elenco tenuto separato dai messaggi tecnici
+# sopra apposta: quelli sono per chi vuole il dettaglio, questo e' per
+# chi vuole solo sapere dove cliccare.
+# La chiave e' il PRINCIPIO del titolo del controllo (non il testo
+# intero): alcuni titoli cambiano a runtime, es. "Errori critici di
+# sistema (ultimi 7 giorni)" diventa "... 30 giorni)" in modalita'
+# Completa, e il confronto e' fatto con StartsWith proprio per questo.
+$glossario = [ordered]@{
+    'Antivirus' = @{
+        Cosa = "L'antivirus non e' del tutto attivo o aggiornato: e' la prima difesa, e se e' spento o vecchio il resto del PC e' scoperto."
+        Fai  = "Impostazioni > Privacy e sicurezza > Sicurezza di Windows > Protezione da virus e minacce. Riattiva la protezione in tempo reale se e' spenta; se le definizioni sono vecchie, premi Verifica aggiornamenti."
+    }
+    'Esclusioni antivirus' = @{
+        Cosa = "Qualcuno ha detto all'antivirus di NON controllare una cartella, un programma o un tipo di file. E' il primo trucco che usano i malware appena si installano, per rendersi invisibili."
+        Fai  = "Se non l'hai messa tu: Sicurezza di Windows > Protezione da virus e minacce > Gestisci impostazioni > Aggiungi o rimuovi esclusioni, e cancellala. Poi lancia una scansione Completa."
+    }
+    'Storico minacce' = @{
+        Cosa = "Defender ha gia' trovato qualcosa in passato, e risulta ancora non risolto."
+        Fai  = "Sicurezza di Windows > Protezione da virus e minacce > Cronologia protezione: trova la voce e scegli Rimuovi o Metti in quarantena. Se non si lascia rimuovere, chiedi aiuto a qualcuno di fiducia."
+    }
+    'Firewall' = @{
+        Cosa = "Un profilo del firewall e' spento: il PC accetta connessioni che normalmente bloccherebbe."
+        Fai  = "Sicurezza di Windows > Firewall e protezione rete, e riattiva il profilo segnalato."
+    }
+    'Programmi in avvio automatico' = @{
+        Cosa = "Un programma parte da solo a ogni accensione da una cartella insolita (temporanea, download) o tramite uno script. Non e' per forza un problema, ma e' un posto classico dove si nasconde chi vuole restare anche dopo un riavvio."
+        Fai  = "Task Manager (Ctrl+Shift+Esc) > scheda Avvio: trova la voce segnalata. Se non riconosci il programma, disattivalo da li'."
+    }
+    'Nascondigli di avvio avanzati' = @{
+        Cosa = "E' stata modificata una delle poche impostazioni di Windows che fanno partire un programma insieme al sistema stesso, ancora prima del desktop. Le usano quasi solo malware o software di sicurezza legittimo."
+        Fai  = "Non e' una cosa da sistemare a mano. Fai girare Sentinella in modalita' Completa, e se il segnale resta, fatti aiutare da qualcuno esperto prima di usare il PC per email o banca."
+    }
+    "Attivita' pianificate" = @{
+        Cosa = "C'e' un'attivita' pianificata che fa partire un programma non firmato da una cartella insolita: un altro modo per far ripartire qualcosa a ogni accensione o a orari fissi."
+        Fai  = "Cerca 'Utilita' di pianificazione' nel menu Start, trova l'attivita' con lo stesso nome mostrato qui sopra, tasto destro > Disattiva."
+    }
+    'Processi in esecuzione' = @{
+        Cosa = "C'e' un programma in esecuzione ADESSO, non firmato digitalmente, partito da una cartella insolita: potrebbe essere attivo sul PC in questo momento."
+        Fai  = "Task Manager > cerca il processo per nome > tasto destro > Apri percorso file, per capire da dove viene. Nel dubbio, tasto destro > Termina attivita', e non riaprirlo finche' non sai cos'e'."
+    }
+    'Servizi e persistenza avanzata' = @{
+        Cosa = "Un servizio di Windows (gira sempre, anche senza che tu apra nulla) non e' firmato e parte da una cartella insolita, oppure c'e' una 'sottoscrizione' di sistema non standard: un modo poco conosciuto per restare attivi a lungo su un PC."
+        Fai  = "E' tecnico: la cosa piu' sicura e' far vedere il report a qualcuno esperto, o cercare online il nome esatto del servizio segnalato prima di toccarlo."
+    }
+    'Estensioni del browser' = @{
+        Cosa = "Hai installato un'estensione nel browser di recente. Le estensioni possono leggere tutto quello che scrivi e vedi online, password comprese."
+        Fai  = "Nel browser: tre puntini > Estensioni > Gestisci estensioni. Controlla quella segnalata; se non l'hai installata tu di proposito, rimuovila."
+    }
+    'Rete: file hosts, proxy, DNS' = @{
+        Cosa = "Qualcosa sta deviando il traffico internet del PC: un sito che apri potrebbe non essere quello vero. E' una tecnica classica per rubare password o mostrare pagine false."
+        Fai  = "Per il proxy: Impostazioni > Rete e Internet > Proxy, disattiva quello che non hai impostato tu. Per hosts o DNS, se non li hai modificati tu di proposito, fatti aiutare: sono due punti delicati da toccare a mano."
+    }
+    'Connessioni di rete e account' = @{
+        Cosa = "C'e' un programma non firmato, da una cartella insolita, che sta comunicando con internet in questo momento, oppure risulta un account amministratore che non ricordi di aver creato."
+        Fai  = "Per la connessione: stessa procedura di Processi in esecuzione. Per un account sconosciuto: Impostazioni > Account > Altri utenti, rimuovilo se non l'hai creato tu e cambia subito la tua password."
+    }
+    'Dischi: spazio libero' = @{
+        Cosa = "Il disco e' quasi pieno. Non e' un problema di sicurezza, ma Windows puo' diventare instabile o lento sotto un certo margine di spazio libero."
+        Fai  = "Impostazioni > Sistema > Archiviazione ti mostra cosa occupa di piu'. Svuota il Cestino e disinstalla cio' che non usi."
+    }
+    'Dischi: stato fisico' = @{
+        Cosa = "Il disco segnala segni di usura o errori: potrebbe guastarsi, e a differenza di un'infezione un disco rotto puo' far perdere i dati per sempre."
+        Fai  = "Fai SUBITO una copia dei file importanti su un altro disco o servizio cloud, prima di qualunque altra cosa. Poi valuta la sostituzione del disco."
+    }
+    'Memoria' = @{
+        Cosa = "La RAM e' quasi satura: il PC rallenta perche' e' costretto a scrivere su disco al posto della memoria veloce."
+        Fai  = "Chiudi i programmi che non usi. Se succede spesso, valuta di aggiungere piu' RAM."
+    }
+    'Errori critici di sistema' = @{
+        Cosa = "Windows ha registrato spegnimenti improvvisi o schermate blu: puo' essere un driver, la RAM, o un riavvio forzato che hai fatto tu."
+        Fai  = "Se capita spesso, aggiorna i driver dal sito del produttore della scheda video o madre. Se persiste, potrebbe essere un problema hardware da far controllare."
+    }
+    'Crash e file di dump' = @{
+        Cosa = "Ci sono tracce di schermate blu passate."
+        Fai  = "Se e' capitato una volta sola, non preoccuparti. Se e' frequente, aggiorna i driver o fai controllare l'hardware."
+    }
+    'Driver e periferiche' = @{
+        Cosa = "Una periferica (stampante, scheda audio, dispositivo USB...) ha un driver che non funziona correttamente."
+        Fai  = "Cerca 'Gestione dispositivi' nel menu Start, trova la voce con il punto esclamativo giallo, tasto destro > Aggiorna driver."
+    }
+    'Aggiornamenti e riavvio in sospeso' = @{
+        Cosa = "Windows non si aggiorna da tempo, oppure un aggiornamento e' a meta' e aspetta un riavvio. Gli aggiornamenti spesso chiudono falle di sicurezza vere."
+        Fai  = "Impostazioni > Windows Update > Verifica aggiornamenti, installa quello che trovi e riavvia quando richiesto."
+    }
+    'Programmi installati di recente' = @{
+        Cosa = "Sentinella elenca solo cosa e' stato installato di recente: non e' un allarme, e' un promemoria da controllare tu."
+        Fai  = "Scorri la lista qui sopra: se vedi un nome che non riconosci, cercalo online prima di lasciarlo sul PC."
+    }
+    "Integrita' dei file di sistema" = @{
+        Cosa = "Alcuni file di sistema di Windows risultano danneggiati o modificati rispetto all'originale."
+        Fai  = "Prompt dei comandi come amministratore, poi scrivi: sfc /scannow  e premi Invio. Windows prova a ripararli da solo."
+    }
+    'Esame antivirus' = @{
+        Cosa = "Windows Defender ha trovato una minaccia ATTIVA durante la scansione."
+        Fai  = "Sicurezza di Windows > Protezione da virus e minacce > Cronologia protezione, e segui le indicazioni per rimuoverla. Poi cambia le password dei servizi importanti (email, banca) da un altro dispositivo."
+    }
+    "Novita' dall'ultima scansione" = @{
+        Cosa = "Qualcosa nel sistema e' cambiato rispetto all'ultima volta che hai usato Sentinella: potresti averlo fatto tu (un'installazione, un aggiornamento), oppure no."
+        Fai  = "Guarda cosa risulta cambiato nel dettaglio qui sopra: se riconosci ogni voce come cosa fatta da te, va tutto bene. Se anche una sola non la riconosci, trattala come un allarme vero."
+    }
+}
+function Spiega($titoloEsatto) {
+    if ($glossario.Contains($titoloEsatto)) { return $glossario[$titoloEsatto] }
+    foreach ($chiave in $glossario.Keys) {
+        if ($titoloEsatto.StartsWith($chiave)) { return $glossario[$chiave] }
+    }
+    return $null
+}
+
+if ($gravi -gt 0 -or $lievi -gt 0) {
+    Write-Host ""
+    Write-Host "   COSA FARE ADESSO" -ForegroundColor White
+    foreach ($k in $esiti.Keys) {
+        if ($esiti[$k] -notin @(1,2)) { continue }
+        $sp = Spiega $k
+        if (-not $sp) { continue }
+        $colB = 'Yellow'; if ($esiti[$k] -eq 2) { $colB = 'Red' }
+        Write-Host ""
+        Write-Host "     $k" -ForegroundColor $colB
+        Write-Host "       Cosa significa: " -NoNewline -ForegroundColor DarkGray
+        Write-Host $sp.Cosa -ForegroundColor Gray
+        Write-Host "       Cosa fare:      " -NoNewline -ForegroundColor DarkGray
+        Write-Host $sp.Fai -ForegroundColor White
+    }
+}
+
 Write-Host ""
 Write-Host ("   " + ("=" * 68)) -ForegroundColor DarkGray
 Write-Host "   Scansione $tipo   -   $TOTPASSI controlli   -   $durata minuti" -ForegroundColor DarkGray
@@ -1082,6 +1234,19 @@ if ($vuoleTxt -or $vuoleHtml) {
     foreach ($x in $sospetti) { $testa += "    [!!] $x" }
     $testa += "  Salute PC - da guardare: $($avvisi.Count)"
     foreach ($x in $avvisi)   { $testa += "    [!!] $x" }
+    if ($gravi -gt 0 -or $lievi -gt 0) {
+        $testa += ""
+        $testa += "COSA FARE ADESSO"
+        foreach ($k in $esiti.Keys) {
+            if ($esiti[$k] -notin @(1,2)) { continue }
+            $sp0 = Spiega $k
+            if (-not $sp0) { continue }
+            $testa += ""
+            $testa += "  $k"
+            $testa += "    Cosa significa: $($sp0.Cosa)"
+            $testa += "    Cosa fare:      $($sp0.Fai)"
+        }
+    }
     $testa += ""
     $testa += "============================================================"
     $testa += " DETTAGLIO COMPLETO DI OGNI CONTROLLO"
@@ -1118,6 +1283,10 @@ if ($vuoleTxt -or $vuoleHtml) {
         [void]$h.AppendLine('.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:700}')
         [void]$h.AppendLine('.g{background:#0d2818;color:#3fb950}.y{background:#2b2411;color:#d29922}.r{background:#2d1214;color:#f85149}.n{background:#161b22;color:#8b949e}')
         [void]$h.AppendLine('li{margin:5px 0}code{background:#161b22;padding:1px 6px;border-radius:4px;font-size:13px}')
+        [void]$h.AppendLine('.spiega{background:#161b22;border-left:4px solid;border-radius:6px;padding:14px 16px;margin:10px 0}')
+        [void]$h.AppendLine('.spiega.r{border-color:#f85149}.spiega.y{border-color:#d29922}')
+        [void]$h.AppendLine('.spiega h3{margin:0 0 8px;font-size:15px;color:#e6edf3}')
+        [void]$h.AppendLine('.spiega p{margin:4px 0}.spiega b{color:#8b949e;font-weight:600}')
         [void]$h.AppendLine('pre{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:16px;overflow-x:auto;font-size:12.5px;color:#8b949e;white-space:pre-wrap}')
         [void]$h.AppendLine('footer{margin-top:44px;color:#6e7681;font-size:13px;text-align:center;border-top:1px solid #21262d;padding-top:18px}')
         [void]$h.AppendLine('footer b{color:#58a6ff}</style></head><body><div class="wrap">')
@@ -1147,6 +1316,15 @@ if ($vuoleTxt -or $vuoleHtml) {
             foreach ($x in $sospetti) { [void]$h.AppendLine("<li><span class=""badge y"">SICUREZZA</span> $(Esc $x)</li>") }
             foreach ($x in $avvisi)   { [void]$h.AppendLine("<li><span class=""badge y"">SALUTE</span> $(Esc $x)</li>") }
             [void]$h.AppendLine('</ul>')
+
+            [void]$h.AppendLine('<h2>Cosa fare adesso</h2>')
+            foreach ($k in $esiti.Keys) {
+                if ($esiti[$k] -notin @(1,2)) { continue }
+                $sp1 = Spiega $k
+                if (-not $sp1) { continue }
+                $clS = 'y'; if ($esiti[$k] -eq 2) { $clS = 'r' }
+                [void]$h.AppendLine("<div class=""spiega $clS""><h3>$(Esc $k)</h3><p><b>Cosa significa:</b> $(Esc $sp1.Cosa)</p><p><b>Cosa fare:</b> $(Esc $sp1.Fai)</p></div>")
+            }
         }
         [void]$h.AppendLine('<h2>Dettaglio completo</h2><pre>')
         foreach ($r in $diario) { [void]$h.AppendLine((Esc $r)) }
