@@ -760,8 +760,13 @@ if ($completa) {
     # sfc scrive in UTF-16: letto come testo normale uscirebbe illeggibile.
     $sfc = (Get-Content -LiteralPath $tmpSfc -Encoding Unicode -Raw) -replace "`0", ''
     Remove-Item -LiteralPath $tmpSfc -Force -ErrorAction SilentlyContinue
-    $sfcPulito = ($sfc -match 'did not find any integrity violations') -or ($sfc -match 'non ha rilevato alcuna violazione')
-    $sfcRotto  = ($sfc -match 'found corrupt files') -or ($sfc -match 'ha rilevato file danneggiati')
+    # La frase esatta di sfc cambia da una versione di Windows all'altra (verificato
+    # dal vivo: su una build recente e' "Protezione risorse di Windows: nessuna
+    # violazione di integrita' trovata.", diversa da quella documentata online per
+    # le versioni precedenti). Si cercano quindi solo le parole chiave che restano
+    # stabili in ogni formulazione, non la frase intera.
+    $sfcPulito = ($sfc -match 'did not find any integrity violations') -or ($sfc -match 'nessuna violazione')
+    $sfcRotto  = ($sfc -match 'found corrupt files') -or ($sfc -match 'danneggiat')
     if ($sfcPulito)     { Ok "File di sistema integri" }
     elseif ($sfcRotto)  { Problema "File di sistema danneggiati. Riparabili con: sfc /scannow (da amministratore)" }
     else                { Nota "Esito non interpretabile automaticamente su questa lingua di Windows" }
