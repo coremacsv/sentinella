@@ -265,6 +265,21 @@ function Insegna {
 # Senza questo i caratteri a blocchi escono come punti interrogativi.
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
+# Il file .bat imposta la finestra a 45 righe visibili, ma senza questo la
+# "memoria" della finestra (il buffer) resta anch'essa a 45: appena il testo
+# supera quella soglia, le righe piu' vecchie non sono solo fuori vista, sono
+# CANCELLATE per sempre - con 24 controlli il solo report finale supera le
+# 45 righe, quindi la Parte A spariva prima ancora di poterci scorrere sopra.
+# Si allarga solo la memoria (altezza del buffer), la finestra resta uguale.
+try {
+    $rawui = $Host.UI.RawUI
+    $buffer = $rawui.BufferSize
+    if ($buffer.Height -lt 3000) {
+        $buffer.Height = 3000
+        $rawui.BufferSize = $buffer
+    }
+} catch { }
+
 Insegna
 Write-Host ""
 Write-Host "   utente    : " -NoNewline -ForegroundColor DarkGray; Write-Host "$env:USERNAME@$env:COMPUTERNAME" -ForegroundColor Gray
