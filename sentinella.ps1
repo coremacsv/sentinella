@@ -670,7 +670,18 @@ else {
             if ($null -ne $rc.Temperature -and $rc.Temperature -gt 60) { Avviso "$($d.FriendlyName): temperatura $($rc.Temperature) gradi" }
             if ($rc.ReadErrorsUncorrected -gt 0)  { Problema "$($d.FriendlyName): $($rc.ReadErrorsUncorrected) errori di lettura non corretti" }
             if ($rc.WriteErrorsUncorrected -gt 0) { Problema "$($d.FriendlyName): $($rc.WriteErrorsUncorrected) errori di scrittura non corretti" }
-            if ($null -ne $rc.PowerOnHours) { Nota "   ore di accensione totali: $($rc.PowerOnHours)" }
+            if ($null -ne $rc.PowerOnHours) {
+                # Un disco consumer e' tipicamente garantito per 3-5 anni di uso
+                # continuo (circa 26.000-44.000 ore). Sopra le 50.000 (~5,7 anni
+                # filati) non e' un'emergenza, ma vale la pena tenerlo d'occhio
+                # e avere un backup extra pronto - il numero da solo, senza
+                # questa soglia, non diceva nulla di util utilizzabile.
+                if ($rc.PowerOnHours -gt 50000) {
+                    Avviso "   $($d.FriendlyName): $($rc.PowerOnHours) ore di accensione - oltre la vita utile tipica, considera un backup extra"
+                } else {
+                    Nota "   ore di accensione totali: $($rc.PowerOnHours)"
+                }
+            }
         }
     }
 }
@@ -741,14 +752,49 @@ foreach ($r in $reg) {
         if (-not $a.DisplayName -or -not $a.InstallDate) { continue }
         $dt = $null
         try { $dt = [datetime]::ParseExact([string]$a.InstallDate, 'yyyyMMdd', $null) } catch { continue }
-        if ($dt -ge (Get-Date).AddDays(-30)) { $rec += [pscustomobject]@{ Nome = $a.DisplayName; Data = $dt } }
+        if ($dt -ge (Get-Date).AddDays(-30)) { $rec += [pscustomobject]@{ Nome = $a.DisplayName; Data = $dt; Icona = $a.DisplayIcon; Loc = $a.InstallLocation } }
     }
 }
-if ($rec) {
-    foreach ($x in ($rec | Sort-Object Data -Descending | Select-Object -First 25)) {
-        Nota ("   {0:dd/MM/yyyy}  {1}" -f $x.Data, $x.Nome)
+# Non basta elencare i nomi e lasciare a te il riconoscimento: dove si riesce
+# a risalire all'eseguibile si controlla la firma digitale - lo stesso
+# controllo oggettivo gia' usato per processi/servizi/attivita'. Prima si
+# tenta DisplayIcon (punta quasi sempre all'eseguibile, a volte con un
+# indice icona da togliere: "...\app.exe,0"); se manca o non e' un .exe si
+# tenta InstallLocation (la cartella di installazione, cercandoci dentro il
+# primo .exe) - da solo DisplayIcon copriva 3 programmi su 25 su un PC di
+# prova, con questo secondo tentativo si arriva a 5. "Non firmato" non vuol
+# dire "pericoloso" (molti programmi piccoli e legittimi non si firmano,
+# costa), ma resta un fatto verificabile che restringe cosa devi guardare
+# tu da 25 nomi a solo quelli senza un editore dichiarato.
+function TrovaEseguibileInstallato($x) {
+    if ($x.Icona) {
+        $p = ([string]$x.Icona -replace ',-?\d+$', '').Trim('"')
+        if ($p -match '(?i)\.exe$' -and (Test-Path -LiteralPath $p)) { return $p }
     }
-    Nota "Controlla che siano tutti programmi installati da te."
+    if ($x.Loc -and (Test-Path -LiteralPath $x.Loc)) {
+        $exe = Get-ChildItem -LiteralPath $x.Loc -Filter '*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($exe) { return $exe.FullName }
+    }
+    return $null
+}
+if ($rec) {
+    $senzaFirma = 0
+    foreach ($x in ($rec | Sort-Object Data -Descending | Select-Object -First 25)) {
+        $percorsoExe = TrovaEseguibileInstallato $x
+        if ($percorsoExe) {
+            if (FirmaValida $percorsoExe) {
+                Nota ("   {0:dd/MM/yyyy}  {1}  -  firmato da {2}" -f $x.Data, $x.Nome, (NomeFirmatario $percorsoExe))
+            } else {
+                $senzaFirma++
+                Attenzione ("{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente" -f $x.Data, $x.Nome)
+            }
+        } else {
+            Nota ("   {0:dd/MM/yyyy}  {1}" -f $x.Data, $x.Nome)
+        }
+    }
+    if ($senzaFirma -gt 0) {
+        Nota "$senzaFirma senza firma digitale (segnalati sopra): non e' detto siano un problema, ma sono quelli su cui vale la pena essere sicuri di averli installati tu."
+    }
 } else { Ok "Nessun programma installato negli ultimi 30 giorni" }
 
 if ($completa) {
@@ -1161,8 +1207,8 @@ $glossario = [ordered]@{
         Fai  = "Impostazioni > Windows Update > Verifica aggiornamenti, installa quello che trovi e riavvia quando richiesto."
     }
     'Programmi installati di recente' = @{
-        Cosa = "Sentinella elenca solo cosa e' stato installato di recente: non e' un allarme, e' un promemoria da controllare tu."
-        Fai  = "Scorri la lista qui sopra: se vedi un nome che non riconosci, cercalo online prima di lasciarlo sul PC."
+        Cosa = "Uno o piu' programmi installati di recente non hanno una firma digitale: non e' per forza un problema (molti programmi piccoli e legittimi non si firmano), ma sono uno a caso o due su cui non c'e' un editore dichiarato a garantire per loro."
+        Fai  = "Guarda solo quelli segnalati 'NON firmato digitalmente' qui sopra (non l'intera lista, gli altri hanno gia' un editore riconosciuto): se non ricordi di averli installati tu, cercali online prima di lasciarli sul PC."
     }
     "Integrita' dei file di sistema" = @{
         Cosa = "Alcuni file di sistema di Windows risultano danneggiati o modificati rispetto all'originale."
