@@ -37,6 +37,18 @@ $esiti = New-Object System.Collections.Specialized.OrderedDictionary
 $sezioneDi = @{}
 $checkCorrente = ''
 $sezioneCorrente = ''
+# Il glossario sotto da' una spiegazione fissa per ogni CONTROLLO (es. "Esame
+# antivirus"). Ma a volte il "cosa fare" giusto dipende da COSA e' stato
+# trovato in quel controllo specifico, non solo dal titolo: una minaccia mai
+# eseguita e una in esecuzione ora meritano un consiglio diverso, anche se
+# sono lo stesso controllo. Un check puo' quindi sovrascrivere qui la propria
+# spiegazione con una calcolata sul caso reale; se non lo fa, resta quella
+# fissa del glossario.
+$spiegazioniDinamiche = @{}
+function SpiegaDinamica([string]$cosa, [string]$fai) {
+    if (-not $script:checkCorrente) { return }
+    $script:spiegazioniDinamiche[$script:checkCorrente] = @{ Cosa = $cosa; Fai = $fai }
+}
 function Segna([int]$livello) {
     if (-not $script:checkCorrente) { return }
     if ($script:esiti[$script:checkCorrente] -lt $livello) { $script:esiti[$script:checkCorrente] = $livello }
@@ -129,6 +141,45 @@ $percorsiSospetti = @(
 $reg = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
          'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
          'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')
+
+# Archivio di programmi legittimi noti che non firmano digitalmente i propri
+# eseguibili Windows (costa, molti piccoli strumenti non lo fanno): senza
+# questo, "NON firmato digitalmente" resta un allarme identico sia per uno
+# strumento conosciuto sia per un eseguibile mai visto prima, che pero' sono
+# due situazioni molto diverse da valutare. Elenco piccolo di proposito:
+# solo voci verificate una per una, non nomi indovinati. Cresce nel tempo,
+# anche con segnalazioni di chi usa Sentinella da GitHub.
+$componentiNoti = [ordered]@{
+    'flyctl' = "Strumento a riga di comando ufficiale di Fly.io (fly.io), usato per gestire applicazioni ospitate su quel servizio. Non firma i binari Windows."
+}
+function ComponenteNoto($nome) {
+    foreach ($chiave in $componentiNoti.Keys) {
+        if ($nome -like "*$chiave*") { return $componentiNoti[$chiave] }
+    }
+    return $null
+}
+
+# Cose che SOLO tu puoi sapere (es. "questo l'hai installato tu?") non vanno
+# indovinate: si chiedono una volta, in modalita' Rapida/Completa dove c'e'
+# tempo per farlo (mai in Lampo, che deve restare sui 15 secondi), e la
+# risposta si ricorda per sempre. Cosi' la seconda scansione e' piu'
+# intelligente della prima, e non si ripete lo stesso allarme ogni volta
+# fino a farlo ignorare anche quando conta davvero.
+$fileConferme = Join-Path $env:LOCALAPPDATA 'Sentinella\conferme-programmi.json'
+$conferme = @{}
+if (Test-Path -LiteralPath $fileConferme) {
+    try {
+        $letto = Get-Content -LiteralPath $fileConferme -Raw | ConvertFrom-Json
+        foreach ($p in $letto.PSObject.Properties) { $conferme[$p.Name] = $p.Value }
+    } catch { }
+}
+function SalvaConferme {
+    try {
+        $cartellaConf = Split-Path $script:fileConferme -Parent
+        if (-not (Test-Path -LiteralPath $cartellaConf)) { New-Item -ItemType Directory -Path $cartellaConf -Force | Out-Null }
+        $script:conferme | ConvertTo-Json -Depth 4 | Out-File -FilePath $script:fileConferme -Encoding utf8
+    } catch { }
+}
 function EsuPercorsoSospetto($p) {
     if ([string]::IsNullOrWhiteSpace($p)) { return $false }
     foreach ($s in $percorsiSospetti) { if ($p -like "$s*") { return $true } }
@@ -394,16 +445,50 @@ else {
 Titolo "Storico minacce"
 if (-not (Esiste 'Get-MpThreatDetection')) { NonDisponibile "Non applicabile senza Defender" }
 else {
-    $minacce = Get-MpThreatDetection | Sort-Object InitialDetectionTime -Descending
+    $minacce = @(Get-MpThreatDetection | Sort-Object InitialDetectionTime -Descending)
     if (-not $minacce) { Ok "Nessuna minaccia mai rilevata su questo sistema" }
     else {
         Nota "$($minacce.Count) rilevamenti in archivio. Ultimi 10:"
+        # Non ci si affida a ThreatStatusID (un codice interno di Defender la
+        # cui esatta corrispondenza non e' garantita restare stabile): si
+        # verificano invece fatti diretti, come si e' fatto a mano stasera
+        # sul caso reale di WinRing0 -> se il file e' ancora li', se e' mai
+        # stato eseguito, se la rimozione e' andata a buon fine.
+        $peggiorStorico = 0
         foreach ($m in ($minacce | Select-Object -First 10)) {
-            $nome = (Get-MpThreat | Where-Object { $_.ThreatID -eq $m.ThreatID } | Select-Object -First 1).ThreatName
+            $infoMinaccia = Get-MpThreat | Where-Object { $_.ThreatID -eq $m.ThreatID } | Select-Object -First 1
+            $nome = $infoMinaccia.ThreatName
             if (-not $nome) { $nome = "ID $($m.ThreatID)" }
             $q = $m.InitialDetectionTime.ToString('dd/MM/yyyy HH:mm')
-            if ($m.ThreatStatusID -in 2,3) { Attenzione "$q - $nome - NON risolta" }
-            else { Nota "   $q - $nome - risolta o in quarantena" }
+
+            $ancoraPresente = $false
+            foreach ($r in $m.Resources) {
+                $p = $r -replace '^file:_', ''
+                if ($p -and (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue)) { $ancoraPresente = $true }
+            }
+            $eseguita = $infoMinaccia -and $infoMinaccia.DidThreatExecute
+            $azioneOk = $m.ActionSuccess
+
+            if ($ancoraPresente -or ($eseguita -and -not $azioneOk)) {
+                Attenzione "$q - $nome - il file e' ancora presente o la rimozione non e' riuscita"
+                if ($peggiorStorico -lt 2) { $peggiorStorico = 2 }
+            } elseif ($eseguita) {
+                Nota "   $q - $nome - ha girato sul PC prima di essere bloccata e rimossa con successo"
+                if ($peggiorStorico -lt 1) { $peggiorStorico = 1 }
+            } else {
+                Nota "   $q - $nome - rilevata e rimossa, mai eseguita sul PC"
+            }
+        }
+        if ($peggiorStorico -eq 0) {
+            Ok "Tutte le minacce passate risultano rimosse; nessuna e' mai stata eseguita sul PC"
+        } elseif ($peggiorStorico -eq 1) {
+            SpiegaDinamica `
+                "Nella cronologia c'e' una minaccia che ha effettivamente girato sul PC prima che Defender la bloccasse e rimuovesse. E' stata neutralizzata, ma essendo stata in esecuzione potrebbe aver fatto qualcosa prima di essere fermata." `
+                "Non serve rimuovere nulla, Defender l'ha gia' fatto. Per sicurezza, cambia le password dei servizi importanti (email, banca) da un altro dispositivo, come precauzione."
+        } else {
+            SpiegaDinamica `
+                "Nella cronologia c'e' una minaccia il cui file risulta ancora presente sul disco, o la cui rimozione da parte di Defender non e' andata a buon fine." `
+                "Sicurezza di Windows > Protezione da virus e minacce > Cronologia protezione, apri la voce indicata sopra e prova 'Rimuovi'. Se non si lascia rimuovere, disconnetti la rete e chiedi aiuto a qualcuno di fiducia prima di continuare a usare il PC."
         }
     }
 }
@@ -785,8 +870,34 @@ if ($rec) {
             if (FirmaValida $percorsoExe) {
                 Nota ("   {0:dd/MM/yyyy}  {1}  -  firmato da {2}" -f $x.Data, $x.Nome, (NomeFirmatario $percorsoExe))
             } else {
-                $senzaFirma++
-                Attenzione ("{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente" -f $x.Data, $x.Nome)
+                $noto = ComponenteNoto $x.Nome
+                if ($noto) {
+                    Nota ("   {0:dd/MM/yyyy}  {1}  -  non firmato, ma conosciuto: {2}" -f $x.Data, $x.Nome, $noto)
+                } elseif ($conferme.ContainsKey($x.Nome) -and $conferme[$x.Nome].risposta -eq 'si') {
+                    Nota ("   {0:dd/MM/yyyy}  {1}  -  non firmato, ma confermato da te il {2}" -f $x.Data, $x.Nome, $conferme[$x.Nome].quando)
+                } elseif ($conferme.ContainsKey($x.Nome) -and $conferme[$x.Nome].risposta -eq 'no') {
+                    $senzaFirma++
+                    Attenzione ("{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente, gia' segnalato come non riconosciuto il {2}" -f $x.Data, $x.Nome, $conferme[$x.Nome].quando)
+                } else {
+                    # Questo solo tu puoi saperlo: non e' un fatto verificabile da
+                    # codice, e' un ricordo tuo. Si chiede una volta sola e si
+                    # ricorda per sempre, cosi' non ricompare identico ogni scansione.
+                    Write-Host ""
+                    Write-Host "     $($x.Nome)" -ForegroundColor Yellow -NoNewline
+                    Write-Host "  (installato il $($x.Data.ToString('dd/MM/yyyy')), NON firmato)" -ForegroundColor Gray
+                    $rispostaUtente = Read-Host "       L'hai installato tu? [S] si  [N] no/non ricordo (INVIO = no)"
+                    $quandoConf = (Get-Date).ToString('dd/MM/yyyy')
+                    if ($rispostaUtente -match '^\s*[SsYy]') {
+                        $conferme[$x.Nome] = @{ risposta = 'si'; quando = $quandoConf }
+                        SalvaConferme
+                        Nota ("   {0:dd/MM/yyyy}  {1}  -  confermato da te ora: non verra' piu' segnalato" -f $x.Data, $x.Nome)
+                    } else {
+                        $conferme[$x.Nome] = @{ risposta = 'no'; quando = $quandoConf }
+                        SalvaConferme
+                        $senzaFirma++
+                        Attenzione ("{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente, non riconosciuto da te" -f $x.Data, $x.Nome)
+                    }
+                }
             }
         } else {
             Nota ("   {0:dd/MM/yyyy}  {1}" -f $x.Data, $x.Nome)
@@ -903,9 +1014,52 @@ if (-not (Esiste 'Start-MpScan')) {
 }
 
 if (Esiste 'Get-MpThreat') {
-    $attive = Get-MpThreat | Where-Object { $_.IsActive -eq $true }
-    if ($attive) { foreach ($t in $attive) { Allarme "MINACCIA ATTIVA: $($t.ThreatName)" } }
-    else { Ok "Nessuna minaccia attiva rilevata" }
+    # 'IsActive' di Get-MpThreat NON e' affidabile: torna vera solo per una
+    # manciata di secondi subito dopo un rilevamento, poi ridiventa falsa da
+    # sola anche se non hai fatto nulla tu (verificato dal vivo su un caso
+    # reale). Si guardano invece fatti diretti: la minaccia e' MAI stata
+    # eseguita (DidThreatExecute), la rimozione e' riuscita (ActionSuccess),
+    # e il file e' ancora al suo posto sul disco.
+    $trovate = Get-MpThreat
+    if (-not $trovate) {
+        Ok "Nessuna minaccia rilevata"
+    } else {
+        $dettagli = Get-MpThreatDetection
+        $peggiorAV = 0
+        foreach ($t in $trovate) {
+            $det = $dettagli | Where-Object { $_.ThreatID -eq $t.ThreatID } |
+                   Sort-Object LastThreatStatusChangeTime -Descending | Select-Object -First 1
+            $ancoraPresente = $false
+            if ($det) {
+                foreach ($r in $det.Resources) {
+                    $p = $r -replace '^file:_', ''
+                    if ($p -and (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue)) { $ancoraPresente = $true }
+                }
+            }
+            $azioneOk = $det -and $det.ActionSuccess
+
+            if ($ancoraPresente -or ($t.DidThreatExecute -and -not $azioneOk)) {
+                Allarme "MINACCIA ATTIVA: $($t.ThreatName) - presente sul disco o non rimossa con successo"
+                if ($peggiorAV -lt 2) { $peggiorAV = 2 }
+            } elseif ($t.DidThreatExecute) {
+                Attenzione "$($t.ThreatName) - ha girato sul PC, rimossa con successo da Defender"
+                if ($peggiorAV -lt 1) { $peggiorAV = 1 }
+            } else {
+                Nota "$($t.ThreatName) - rilevata e rimossa, MAI eseguita sul PC: nessun rischio reale corso"
+            }
+        }
+        if ($peggiorAV -eq 0) {
+            Ok "Nessuna minaccia attiva rilevata"
+        } elseif ($peggiorAV -eq 1) {
+            SpiegaDinamica `
+                "Windows Defender ha trovato ed eliminato con successo una minaccia che pero' ha fatto in tempo a girare sul PC prima di essere bloccata." `
+                "Non serve rimuovere nulla, Defender l'ha gia' fatto da solo. Per sicurezza, dato che ha girato prima di essere fermata, cambia le password dei servizi importanti (email, banca) da un altro dispositivo, come precauzione."
+        } else {
+            SpiegaDinamica `
+                "Windows Defender ha trovato una minaccia che ha effettivamente girato sul PC (o il cui file e' ancora presente / non rimosso con successo)." `
+                "Sicurezza di Windows > Protezione da virus e minacce > Cronologia protezione, e segui le indicazioni per rimuoverla. Poi cambia le password dei servizi importanti (email, banca) da un altro dispositivo."
+        }
+    }
 }
 }
 
@@ -998,6 +1152,18 @@ $cartellaStato = Join-Path $env:LOCALAPPDATA 'Sentinella'
 $fileStato = Join-Path $cartellaStato 'ultima-scansione.json'
 $adesso = ImprontaSistema
 
+# Versione delle definizioni antivirus al momento di QUESTA scansione. Serve
+# a spiegare un caso reale: un file fermo sul disco da mesi puo' passare da
+# "pulito" a "minaccia" da una scansione all'altra senza che il file stesso
+# sia cambiato, semplicemente perche' Microsoft ha aggiornato le definizioni
+# nel frattempo. Senza questo confronto sembra un'infezione nuova; con
+# questo si vede che e' Defender ad aver imparato qualcosa, non il PC.
+$versioneDefAV = $null
+if (Esiste 'Get-MpComputerStatus') {
+    $mpStatus = Get-MpComputerStatus
+    if ($mpStatus) { $versioneDefAV = $mpStatus.AntivirusSignatureVersion }
+}
+
 $etichette = [ordered]@{
     'esclusioni' = 'esclusioni antivirus'
     'avvio'      = 'programmi in avvio automatico'
@@ -1036,6 +1202,11 @@ if (Test-Path -LiteralPath $fileStato) {
         }
         if ($cambiamenti -eq 0) { Ok "Nessun cambiamento: il sistema e' identico all'ultima scansione" }
         else { Nota "Se questi cambiamenti li hai fatti tu, va tutto bene. Altrimenti approfondisci." }
+
+        if ($versioneDefAV -and $prec.versioneDefAV -and $prec.versioneDefAV -ne $versioneDefAV) {
+            Nota "Definizioni antivirus cambiate dall'ultima scansione: $($prec.versioneDefAV) -> $versioneDefAV"
+            Nota "Se oggi l'antivirus segnala qualcosa che ieri non vedeva, puo' essere per questo: ha imparato qualcosa di nuovo, non e' detto che il tuo PC sia cambiato."
+        }
     } catch {
         Attenzione "Impronta precedente illeggibile: la sostituisco con quella di oggi"
     }
@@ -1046,7 +1217,7 @@ if (Test-Path -LiteralPath $fileStato) {
 
 try {
     if (-not (Test-Path -LiteralPath $cartellaStato)) { New-Item -ItemType Directory -Path $cartellaStato -Force | Out-Null }
-    @{ quando = (Get-Date).ToString('o'); impronta = $adesso } | ConvertTo-Json -Depth 6 |
+    @{ quando = (Get-Date).ToString('o'); impronta = $adesso; versioneDefAV = $versioneDefAV } | ConvertTo-Json -Depth 6 |
         Out-File -FilePath $fileStato -Encoding utf8
     Nota "Impronta aggiornata in $fileStato"
 } catch {
@@ -1224,6 +1395,7 @@ $glossario = [ordered]@{
     }
 }
 function Spiega($titoloEsatto) {
+    if ($spiegazioniDinamiche.ContainsKey($titoloEsatto)) { return $spiegazioniDinamiche[$titoloEsatto] }
     if ($glossario.Contains($titoloEsatto)) { return $glossario[$titoloEsatto] }
     foreach ($chiave in $glossario.Keys) {
         if ($titoloEsatto.StartsWith($chiave)) { return $glossario[$chiave] }
