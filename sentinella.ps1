@@ -1,7 +1,7 @@
 ﻿# =====================================================================
 #
 #   SENTINELLA  -  sicurezza e salute del tuo PC
-#   Versione 2.1  -  by lozy
+#   Versione 2.2  -  by lozy
 #
 #   Uno strumento unico che risponde a due domande:
 #     "Il mio PC e' infetto?"  e  "Il mio PC sta bene?"
@@ -19,7 +19,7 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference    = 'SilentlyContinue'
-$VERSIONE = '2.1'
+$VERSIONE = '2.2'
 
 $allarmi  = New-Object System.Collections.ArrayList   # sicurezza, grave
 $sospetti = New-Object System.Collections.ArrayList   # sicurezza, da guardare
@@ -95,21 +95,28 @@ function Esiste($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyCont
 # parallelo e nel frattempo si mostra un indicatore che gira, con il tempo
 # trascorso: cosi' si vede sempre che il programma sta lavorando.
 function Attendi($lavoro, $etichetta) {
+    if (-not $lavoro) {
+        Write-Host "      [x]  $etichetta  -  non e' stato possibile avviarla" -ForegroundColor Yellow
+        return $false
+    }
     $rot = @('|', '/', '-', '\')
     $i = 0
     $t0 = Get-Date
-    while ($lavoro.State -eq 'Running') {
+    while ($lavoro.State -in @('Running', 'NotStarted')) {
         $s = [int]((Get-Date) - $t0).TotalSeconds
         $t = "      [{0}]  {1}  in esecuzione...  {2:00}:{3:00}" -f $rot[$i % 4], $etichetta, [int]($s / 60), ($s % 60)
         Write-Host ("`r" + $t.PadRight(76)) -NoNewline -ForegroundColor DarkCyan
         Start-Sleep -Milliseconds 200
         $i++
     }
+    $riuscito = ($lavoro.State -eq 'Completed')
     $null = Receive-Job $lavoro -ErrorAction SilentlyContinue
     Remove-Job $lavoro -Force -ErrorAction SilentlyContinue
     $tot = [int]((Get-Date) - $t0).TotalSeconds
     Write-Host ("`r" + (" " * 76)) -NoNewline
-    Write-Host ("`r      [v]  {0}  -  completata in {1} secondi" -f $etichetta, $tot) -ForegroundColor DarkGray
+    if ($riuscito) { Write-Host ("`r      [v]  {0}  -  completata in {1} secondi" -f $etichetta, $tot) -ForegroundColor DarkGray }
+    else { Write-Host ("`r      [x]  {0}  -  NON completata" -f $etichetta) -ForegroundColor Yellow }
+    return $riuscito
 }
 
 # Stessa idea per un programma esterno (usato da sfc, che non e' un job).
@@ -129,12 +136,14 @@ function AttendiProcesso($proc, $etichetta) {
     Write-Host ("`r      [v]  {0}  -  completata in {1} secondi" -f $etichetta, $tot) -ForegroundColor DarkGray
 }
 
-# Cartelle da cui un programma legittimo di solito NON parte.
-$percorsiSospetti = @(
-    "$env:LOCALAPPDATA\Temp", "$env:TEMP", "$env:APPDATA",
-    "$([Environment]::GetFolderPath('UserProfile'))\Downloads",
-    "$env:PUBLIC", "$env:ProgramData"
-)
+# Solo Windows e Programmi richiedono l'amministratore per scriverci: tutto il
+# resto (profilo utente, altri dischi) va verificato con la firma digitale.
+$cartelleDiSistema = @($env:SystemRoot, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432) |
+                     Where-Object { $_ } | Select-Object -Unique
+$eccezioniDiSistema = @("$env:SystemRoot\Temp", "$env:SystemRoot\Tasks", "$env:SystemRoot\Tracing", "$env:SystemRoot\System32\Tasks")
+# Solo queste sono proprieta' aggiunte da PowerShell: un filtro su "PS*" nasconderebbe
+# anche un programma in avvio che si chiama, per esempio, "PSUpdater".
+$proprietaPS = @('PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider')
 # Usata sia dal controllo "Programmi installati di recente" (Parte B, saltata
 # in Lampo) sia dal confronto "Novita' dall'ultima scansione" (Parte D,
 # sempre attivo): definita qui in cima cosi' e' disponibile in ogni modalita'.
@@ -180,24 +189,73 @@ function SalvaConferme {
         $script:conferme | ConvertTo-Json -Depth 4 | Out-File -FilePath $script:fileConferme -Encoding utf8
     } catch { }
 }
+# Da una riga di comando (virgolette, parametri, %variabili%) ricava il solo file.
+function EstraiEseguibile($comando) {
+    if ([string]::IsNullOrWhiteSpace($comando)) { return $null }
+    $c = [Environment]::ExpandEnvironmentVariables([string]$comando).Trim()
+    if ($c.StartsWith('"')) {
+        $fine = $c.IndexOf('"', 1)
+        if ($fine -gt 0) { return $c.Substring(1, $fine - 1) }
+        return $c.Trim('"')
+    }
+    $m = [regex]::Match($c, '^.+?\.(exe|com|bat|cmd|ps1|vbs|vbe|js|jse|wsf|hta|scr|dll|msi)(?=\s|,|$)', 'IgnoreCase')
+    if ($m.Success) { return $m.Value }
+    return $c
+}
 function EsuPercorsoSospetto($p) {
-    if ([string]::IsNullOrWhiteSpace($p)) { return $false }
-    foreach ($s in $percorsiSospetti) { if ($p -like "$s*") { return $true } }
+    $x = EstraiEseguibile $p
+    if (-not $x) { return $false }
+    if ($x -match '^\\\\') { return $true }
+    if ($x -notmatch '^[A-Za-z]:\\') { return $false }
+    foreach ($e in $eccezioniDiSistema) { if ($x.StartsWith("$e\", [StringComparison]::OrdinalIgnoreCase)) { return $true } }
+    foreach ($s in $cartelleDiSistema) { if ($x.StartsWith("$s\", [StringComparison]::OrdinalIgnoreCase)) { return $false } }
+    return $true
+}
+# I programmi che si auto-aggiornano (OneDrive) lasciano comandi una tantum come
+# "cmd /c del ...": cancellano un file e basta, non fanno partire nulla.
+function ComandoPulizia($comando) {
+    $c = [Environment]::ExpandEnvironmentVariables([string]$comando)
+    return ($c -match '(?i)^"?([a-z]:\\[^"]*\\)?cmd(\.exe)?"?\s+(/\w+\s+)*(del|erase|rd|rmdir)\s')
+}
+# Il malware si nasconde spesso dietro programmi di Windows perfettamente firmati
+# (powershell, wscript, rundll32...): quello che conta e' cosa gli viene fatto eseguire.
+function ComandoSospetto($comando) {
+    if ([string]::IsNullOrWhiteSpace($comando)) { return $false }
+    $c = [Environment]::ExpandEnvironmentVariables([string]$comando)
+    if ($c -notmatch '(?i)(^|[\\\s"''])(powershell|pwsh|cmd|wscript|cscript|mshta|rundll32|regsvr32|bitsadmin|certutil)(\.exe)?(["''\s]|$)') { return $false }
+    if (ComandoPulizia $c) { return $false }
+    if ($c -match '(?i)\s-e(nc|ncodedcommand)?\s+[A-Za-z0-9+/=]{16,}|\s-w(indowstyle)?\s+h(idden)?\b|frombase64string|downloadstring|downloadfile|invoke-webrequest|invoke-expression|\biex\b|https?://') { return $true }
+    foreach ($m in [regex]::Matches($c, '(?i)[a-z]:\\[^"'']+?\.(ps1|vbs|vbe|js|jse|wsf|hta|bat|cmd|dll|exe|scr)\b')) {
+        if (EsuPercorsoSospetto $m.Value) { return $true }
+    }
     return $false
 }
 # I malware comuni non sono firmati digitalmente. Senza questo controllo
 # lo strumento accusa Windows Defender stesso, che vive sotto ProgramData.
 function FirmaValida($p) {
-    if ([string]::IsNullOrWhiteSpace($p)) { return $false }
-    if (-not (Test-Path -LiteralPath $p)) { return $false }
-    return ((Get-AuthenticodeSignature -LiteralPath $p).Status -eq 'Valid')
+    $x = EstraiEseguibile $p
+    if (-not $x) { return $false }
+    if (-not (Test-Path -LiteralPath $x)) { return $false }
+    return ((Get-AuthenticodeSignature -LiteralPath $x).Status -eq 'Valid')
 }
 # L'impronta SHA256 permette di verificare un file sospetto su VirusTotal
 # senza caricarlo: si incolla il codice nella casella di ricerca.
 function Impronta($p) {
-    if ([string]::IsNullOrWhiteSpace($p)) { return '' }
-    if (-not (Test-Path -LiteralPath $p)) { return '' }
-    try { return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } catch { return '' }
+    $x = EstraiEseguibile $p
+    if (-not $x) { return '' }
+    if (-not (Test-Path -LiteralPath $x)) { return '' }
+    try { return (Get-FileHash -LiteralPath $x -Algorithm SHA256).Hash } catch { return '' }
+}
+function TrovaEseguibileInstallato($x) {
+    if ($x.Icona) {
+        $p = ([string]$x.Icona -replace ',-?\d+$', '').Trim('"')
+        if ($p -match '(?i)\.exe$' -and (Test-Path -LiteralPath $p)) { return $p }
+    }
+    if ($x.Loc -and (Test-Path -LiteralPath $x.Loc)) {
+        $exe = Get-ChildItem -LiteralPath $x.Loc -Filter '*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($exe) { return $exe.FullName }
+    }
+    return $null
 }
 # Un indirizzo numerico non dice niente a nessuno: qui si prova a
 # risalire al nome del sito, con un tetto di tempo per non bloccare
@@ -214,7 +272,7 @@ function NomeHost($ip) {
     return $nome
 }
 function NomeFirmatario($p) {
-    $f = Get-AuthenticodeSignature -LiteralPath $p
+    $f = Get-AuthenticodeSignature -LiteralPath (EstraiEseguibile $p)
     if ($f -and $f.SignerCertificate) {
         $s = $f.SignerCertificate.Subject
         # Il nome puo' essere tra virgolette e contenere virgole
@@ -363,7 +421,7 @@ Write-Host "     [0]  Esci" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "   Tutte controllano ogni disco: cambia solo quanto a fondo." -ForegroundColor Gray
 Write-Host ""
-$scelta = Read-Host "   Scrivi 1, 2, 3 o 0 e premi INVIO"
+do { $scelta = Read-Host "   Scrivi 1, 2, 3 o 0 e premi INVIO" } while ($scelta -notin @('0', '1', '2', '3'))
 if ($scelta -eq '0') { exit }
 $lampo    = ($scelta -eq '1')
 $completa = ($scelta -eq '3')
@@ -434,7 +492,8 @@ else {
     foreach ($v in $pref.ExclusionPath)      { if ($v -and $v -notlike 'N/A*') { $esc += "cartella: $v" } }
     foreach ($v in $pref.ExclusionProcess)   { if ($v -and $v -notlike 'N/A*') { $esc += "processo: $v" } }
     foreach ($v in $pref.ExclusionExtension) { if ($v -and $v -notlike 'N/A*') { $esc += "estensione: $v" } }
-    if ($esc.Count -eq 0) { Ok "Nessuna esclusione impostata" }
+    if (-not $pref) { NonDisponibile "Impostazioni di Defender non leggibili: controllo non eseguito" }
+    elseif ($esc.Count -eq 0) { Ok "Nessuna esclusione impostata" }
     else {
         foreach ($e in $esc) { Allarme "Esclusione -> $e" }
         Nota "Un'esclusione dice all'antivirus di NON controllare quel punto."
@@ -472,6 +531,8 @@ else {
             if ($ancoraPresente -or ($eseguita -and -not $azioneOk)) {
                 Attenzione "$q - $nome - il file e' ancora presente o la rimozione non e' riuscita"
                 if ($peggiorStorico -lt 2) { $peggiorStorico = 2 }
+            } elseif ($nome -like 'VulnerableDriver:*') {
+                Nota "   $q - $nome - driver legittimo con una falla nota (non un virus), bloccato da Defender"
             } elseif ($eseguita) {
                 Nota "   $q - $nome - ha girato sul PC prima di essere bloccata e rimossa con successo"
                 if ($peggiorStorico -lt 1) { $peggiorStorico = 1 }
@@ -480,8 +541,9 @@ else {
             }
         }
         if ($peggiorStorico -eq 0) {
-            Ok "Tutte le minacce passate risultano rimosse; nessuna e' mai stata eseguita sul PC"
+            Ok "Le minacce passate risultano rimosse e nessun malware risulta aver girato sul PC"
         } elseif ($peggiorStorico -eq 1) {
+            Attenzione "Una minaccia ha girato sul PC prima di essere rimossa (dettaglio qui sopra)"
             SpiegaDinamica `
                 "Nella cronologia c'e' una minaccia che ha effettivamente girato sul PC prima che Defender la bloccasse e rimuovesse. E' stata neutralizzata, ma essendo stata in esecuzione potrebbe aver fatto qualcosa prima di essere fermata." `
                 "Non serve rimuovere nulla, Defender l'ha gia' fatto. Per sicurezza, cambia le password dei servizi importanti (email, banca) da un altro dispositivo, come precauzione."
@@ -515,10 +577,14 @@ foreach ($k in $chiavi) {
     $item = Get-ItemProperty -Path $k
     if (-not $item) { continue }
     foreach ($p in $item.PSObject.Properties) {
-        if ($p.Name -like 'PS*') { continue }
+        if ($proprietaPS -contains $p.Name) { continue }
         $nAvvio++
         $val = [string]$p.Value
-        if (EsuPercorsoSospetto $val)  { Allarme "Avvio da cartella anomala: $($p.Name) -> $val" }
+        if (ComandoSospetto $val) { Allarme "Avvio tramite comando sospetto: $($p.Name) -> $val" }
+        elseif (EsuPercorsoSospetto $val) {
+            if (FirmaValida $val) { Nota "   $($p.Name) - firmato da $(NomeFirmatario $val)" }
+            else { Allarme "Avvio di un file NON firmato fuori da Windows e Programmi: $($p.Name) -> $val  [SHA256 $(Impronta $val)]" }
+        }
         elseif ($val -match '\.(vbs|js|jse|bat|cmd|ps1|scr|hta)(\"|\s|$)') { Allarme "Avvio tramite script: $($p.Name) -> $val" }
         else { Nota "   $($p.Name)" }
     }
@@ -570,26 +636,33 @@ if ($bho -eq 0) { Ok "Nessun componente aggiuntivo agganciato a Explorer" }
 
 Titolo "Attivita' pianificate"
 $b = 0
-foreach ($t in (Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' })) {
+$elencoAttivita = @(Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' })
+foreach ($t in $elencoAttivita) {
     foreach ($a in $t.Actions) {
         $ex = $a.Execute
         if (-not $ex) { continue }
         $ex = $ex.Trim('"')
-        if ((EsuPercorsoSospetto $ex) -or ($ex -match '\.(vbs|js|jse|hta|scr)$')) {
+        $riga = "$($a.Execute) $($a.Arguments)".Trim()
+        if (ComandoSospetto $riga) {
+            $b++; Allarme "Attivita' '$($t.TaskName)' lancia un comando sospetto: $riga"
+        } elseif ((EsuPercorsoSospetto $ex) -or ((EstraiEseguibile $ex) -match '\.(vbs|js|jse|hta|scr)$')) {
             if (FirmaValida $ex) { Nota "   $($t.TaskName) -> firmato da $(NomeFirmatario $ex)" }
             else { $b++; Allarme "Attivita' '$($t.TaskName)' esegue un file NON firmato: $ex  [SHA256 $(Impronta $ex)]" }
         }
     }
 }
-if ($b -eq 0) { Ok "Nessuna attivita' pianificata sospetta" }
+if ($elencoAttivita.Count -eq 0) { NonDisponibile "Elenco delle attivita' pianificate non leggibile: controllo non eseguito" }
+elseif ($b -eq 0) { Ok "Nessuna attivita' pianificata sospetta" }
 
 if (-not $lampo) {
 Titolo "Processi in esecuzione"
 $b = 0
-foreach ($p in (Get-Process | Where-Object { $_.Path } | Sort-Object ProcessName -Unique)) {
-    if (EsuPercorsoSospetto $p.Path) {
-        if (FirmaValida $p.Path) { Nota "   $($p.ProcessName) - cartella utente ma firmato da $(NomeFirmatario $p.Path)" }
-        else { $b++; Attenzione "$($p.ProcessName) NON firmato, in esecuzione da $($p.Path)  [SHA256 $(Impronta $p.Path)]" }
+# Per percorso, non per nome: un malware chiamato "svchost" in una cartella utente
+# verrebbe scartato come doppione del vero svchost di Windows.
+foreach ($p in (Get-Process | Where-Object { $_.Path } | Sort-Object Path -Unique)) {
+    if (EsuPercorsoSospetto "`"$($p.Path)`"") {
+        if (FirmaValida "`"$($p.Path)`"") { Nota "   $($p.ProcessName) - fuori da Programmi ma firmato da $(NomeFirmatario "`"$($p.Path)`"")" }
+        else { $b++; Attenzione "$($p.ProcessName) NON firmato, in esecuzione da $($p.Path)  [SHA256 $(Impronta "`"$($p.Path)`"")]" }
     }
 }
 if ($b -eq 0) { Ok "Nessun processo non firmato da cartelle anomale" }
@@ -597,14 +670,18 @@ if ($b -eq 0) { Ok "Nessun processo non firmato da cartelle anomale" }
 
 Titolo "Servizi e persistenza avanzata"
 $b = 0
-foreach ($s in (Get-CimInstance Win32_Service | Where-Object { $_.PathName })) {
-    $pn = $s.PathName -replace '^"([^"]+)".*$', '$1'
-    if (EsuPercorsoSospetto $pn) {
+$elencoServizi = @(Get-CimInstance Win32_Service | Where-Object { $_.PathName })
+foreach ($s in $elencoServizi) {
+    $pn = $s.PathName
+    if (ComandoSospetto $pn) {
+        $b++; Allarme "Servizio '$($s.Name)' lancia un comando sospetto: $pn"
+    } elseif (EsuPercorsoSospetto $pn) {
         if (FirmaValida $pn) { Nota "   $($s.Name) -> firmato da $(NomeFirmatario $pn)" }
         else { $b++; Allarme "Servizio '$($s.Name)' NON firmato: $pn  [SHA256 $(Impronta $pn)]" }
     }
 }
-if ($b -eq 0) { Ok "Nessun servizio non firmato in cartelle utente" }
+if ($elencoServizi.Count -eq 0) { NonDisponibile "Elenco dei servizi non leggibile: controllo non eseguito" }
+elseif ($b -eq 0) { Ok "Nessun servizio non firmato in cartelle utente" }
 $wmiNoti = @('SCM Event Log Filter','BVTFilter')
 $wmi = Get-CimInstance -Namespace root\subscription -ClassName __EventFilter | Where-Object { $wmiNoti -notcontains $_.Name }
 if ($wmi) { foreach ($w in $wmi) { Attenzione "Sottoscrizione WMI non standard: $($w.Name) (tecnica di persistenza avanzata)" } }
@@ -627,6 +704,35 @@ $recenteEst = (Get-Date).AddDays(-45)
 # configurazione iniziale del computer.
 $sogliaSetup = $installato.AddDays(2)
 if ($recenteEst -lt $sogliaSetup) { $recenteEst = $sogliaSetup }
+# La data della cartella cambia a ogni aggiornamento automatico: la data vera di
+# installazione, e se l'estensione e' di serie, stanno nelle impostazioni del browser.
+function ImpostazioniEstensioni($cartellaProfilo) {
+    $imp = @{}
+    foreach ($nomeFile in @('Secure Preferences', 'Preferences')) {
+        $f = Join-Path $cartellaProfilo $nomeFile
+        if (-not (Test-Path -LiteralPath $f)) { continue }
+        try {
+            $j = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pr in $j.extensions.settings.PSObject.Properties) {
+                if (-not $imp.ContainsKey($pr.Name) -or $pr.Value.first_install_time) { $imp[$pr.Name] = $pr.Value }
+            }
+        } catch { }
+    }
+    return $imp
+}
+function NomeEstensione($manifesto, $cartellaVersione, $idEstensione) {
+    if (-not $manifesto -or -not $manifesto.name) { return $idEstensione }
+    if ($manifesto.name -notlike '__MSG_*') { return $manifesto.name }
+    $chiave = $manifesto.name -replace '^__MSG_|__$', ''
+    $fileLingua = Join-Path $cartellaVersione "_locales\$($manifesto.default_locale)\messages.json"
+    if (Test-Path -LiteralPath $fileLingua) {
+        try {
+            $testi = Get-Content -LiteralPath $fileLingua -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($t in $testi.PSObject.Properties) { if ($t.Name -ieq $chiave) { return $t.Value.message } }
+        } catch { }
+    }
+    return $idEstensione
+}
 $totEst = 0; $nuoveEst = 0; $trovatoBrowser = $false
 foreach ($b in $browser) {
     if (-not (Test-Path -LiteralPath $b.Base)) { continue }
@@ -635,6 +741,7 @@ foreach ($b in $browser) {
     foreach ($prof in (Get-ChildItem -LiteralPath $b.Base -Directory -ErrorAction SilentlyContinue)) {
         $dirEst = Join-Path $prof.FullName 'Extensions'
         if (-not (Test-Path -LiteralPath $dirEst)) { continue }
+        $impostazioni = ImpostazioniEstensioni $prof.FullName
         foreach ($est in (Get-ChildItem -LiteralPath $dirEst -Directory -ErrorAction SilentlyContinue)) {
             $ver = Get-ChildItem -LiteralPath $est.FullName -Directory -ErrorAction SilentlyContinue |
                    Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -644,13 +751,19 @@ foreach ($b in $browser) {
             $man = Join-Path $ver.FullName 'manifest.json'
             if (Test-Path -LiteralPath $man) {
                 try {
-                    $j = Get-Content -LiteralPath $man -Raw | ConvertFrom-Json
-                    if ($j.name -and $j.name -notlike '__MSG_*') { $nome = $j.name }
+                    $j = Get-Content -LiteralPath $man -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $nome = NomeEstensione $j $ver.FullName $est.Name
                 } catch { }
             }
-            if ($ver.LastWriteTime -ge $recenteEst) {
+            $infoEst = $impostazioni[$est.Name]
+            if ($infoEst -and $infoEst.was_installed_by_default) { continue }
+            $dataEst = $ver.LastWriteTime
+            if ($infoEst -and $infoEst.first_install_time) {
+                try { $dataEst = [datetime]::FromFileTimeUtc([long]$infoEst.first_install_time * 10).ToLocalTime() } catch { }
+            }
+            if ($dataEst -ge $recenteEst) {
                 $nuoveEst++
-                Attenzione "$($b.Nome): estensione aggiunta di recente - '$nome' ($($ver.LastWriteTime.ToString('dd/MM/yyyy')))"
+                Attenzione "$($b.Nome): estensione installata di recente - '$nome' ($($dataEst.ToString('dd/MM/yyyy')))"
             }
         }
     }
@@ -760,7 +873,7 @@ else {
                 # continuo (circa 26.000-44.000 ore). Sopra le 50.000 (~5,7 anni
                 # filati) non e' un'emergenza, ma vale la pena tenerlo d'occhio
                 # e avere un backup extra pronto - il numero da solo, senza
-                # questa soglia, non diceva nulla di util utilizzabile.
+                # questa soglia, non diceva nulla di utilizzabile.
                 if ($rc.PowerOnHours -gt 50000) {
                     Avviso "   $($d.FriendlyName): $($rc.PowerOnHours) ore di accensione - oltre la vita utile tipica, considera un backup extra"
                 } else {
@@ -784,29 +897,65 @@ foreach ($p in (Get-Process | Sort-Object WorkingSet64 -Descending | Select-Obje
 
 Titolo "Errori critici di sistema (ultimi $giorniLog giorni)"
 $da = (Get-Date).AddDays(-$giorniLog)
-$ev = Get-WinEvent -FilterHashtable @{ LogName='System'; Level=1,2; StartTime=$da } -MaxEvents 500
-if (-not $ev) { Ok "Nessun errore critico registrato" }
-else {
+$ev = @(Get-WinEvent -FilterHashtable @{ LogName='System'; Level=1,2; StartTime=$da })
+if ($ev.Count -eq 0) {
+    if (Get-WinEvent -ListLog System) { Ok "Nessun errore critico registrato in questo periodo" }
+    else { NonDisponibile "Registro eventi non leggibile: controllo non eseguito" }
+} else {
     Nota "$($ev.Count) eventi di errore o critici. Per origine:"
     foreach ($g in ($ev | Group-Object ProviderName | Sort-Object Count -Descending | Select-Object -First 8)) {
         Nota ("   {0,-40} {1,4}" -f $g.Name, $g.Count)
     }
-    $spegn = $ev | Where-Object { $_.Id -eq 41 -or $_.Id -eq 6008 }
-    if ($spegn) { Avviso "$($spegn.Count) spegnimenti anomali (blocco, riavvio forzato o mancanza di corrente)" }
-    $bsod = $ev | Where-Object { $_.Id -eq 1001 -and $_.ProviderName -like '*BugCheck*' }
-    if ($bsod) { Problema "$($bsod.Count) schermate blu registrate" }
-    $disco = $ev | Where-Object { $_.ProviderName -match 'disk|Ntfs|storahci|volmgr|stornvme' }
-    if ($disco) { Problema "$($disco.Count) errori di disco o file system: possibile disco in sofferenza" }
-    $dcom = $ev | Where-Object { $_.ProviderName -like '*DistributedCOM*' }
-    if ($dcom) { Nota "   (di cui $($dcom.Count) DistributedCOM: quasi sempre innocui, tipici dopo una reinstallazione)" }
+    # Uno stesso spegnimento improvviso scrive due eventi (41 e 6008): sommarli lo raddoppierebbe.
+    $n41 = @($ev | Where-Object { $_.Id -eq 41 -and $_.ProviderName -like '*Kernel-Power*' }).Count
+    $n6008 = @($ev | Where-Object { $_.Id -eq 6008 -and $_.ProviderName -eq 'EventLog' }).Count
+    $nSpegn = [Math]::Max($n41, $n6008)
+    if ($nSpegn -gt 0) { Avviso "$nSpegn spegnimenti anomali (blocco, riavvio forzato o mancanza di corrente)" }
+    $bsod = @($ev | Where-Object { $_.Id -eq 1001 -and $_.ProviderName -match 'WER-SystemErrorReporting|BugCheck' })
+    if ($bsod.Count -gt 0) {
+        $codice = [regex]::Match([string]$bsod[0].Message, '0x[0-9a-fA-F]{8}').Value
+        $testoBsod = "Schermate blu registrate: $($bsod.Count) (ultimo codice: $codice, del $($bsod[0].TimeCreated.ToString('dd/MM/yyyy HH:mm')))"
+        if ($bsod.Count -ge 3) { Problema $testoBsod } else { Avviso $testoBsod }
+    }
+    $disco = @($ev | Where-Object { $_.ProviderName -match '^disk$|Ntfs|storahci|stornvme' })
+    if ($disco.Count -gt 0) { Problema "$($disco.Count) errori di disco o file system: possibile disco in sofferenza" }
+    $dcom = @($ev | Where-Object { $_.ProviderName -like '*DistributedCOM*' })
+    if ($dcom.Count -gt 0) { Nota "   (di cui $($dcom.Count) DistributedCOM: quasi sempre innocui, tipici dopo una reinstallazione)" }
+}
+# Lo stesso blocco viene ripresentato da Windows a ogni tentativo di invio: si conta per data del report.
+$blocchi = @{}
+foreach ($e in (Get-WinEvent -FilterHashtable @{ LogName='Application'; ProviderName='Windows Error Reporting'; Id=1001; StartTime=$da })) {
+    foreach ($m in [regex]::Matches([string]$e.Message, 'WATCHDOG\d*-(\d{8})-(\d{4})\.dmp')) {
+        try {
+            if ([datetime]::ParseExact($m.Groups[1].Value, 'yyyyMMdd', $null) -ge $da.Date) { $blocchi["$($m.Groups[1].Value)-$($m.Groups[2].Value)"] = $true }
+        } catch { }
+    }
+}
+if ($blocchi.Count -ge 3) {
+    Avviso "$($blocchi.Count) blocchi temporanei segnalati da Windows e superati da soli (spesso scheda video o suo driver)"
+    SpiegaDinamica `
+        "Windows ha rilevato piu' volte un componente bloccato, di solito la scheda video o il suo driver, e l'ha fatto ripartire. Possono comparire come scatti, schermo nero per un attimo o programmi che si chiudono." `
+        "Aggiorna il driver dal sito del produttore della scheda video. Se continuano, controlla anche temperature e alimentazione durante i giochi."
+}
+# Errori del processore o della memoria segnalati dall'hardware: rari per natura,
+# quindi si guarda un periodo piu' lungo e distinto da quello degli altri eventi.
+$whea = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger'; Level=1,2; StartTime=(Get-Date).AddDays(-90) })
+if ($whea.Count -gt 0) {
+    Problema "$($whea.Count) errori hardware irreversibili negli ultimi 90 giorni (ultimo il $($whea[0].TimeCreated.ToString('dd/MM/yyyy HH:mm')))"
+    SpiegaDinamica `
+        "Il processore o un componente collegato ha segnalato un errore che non ha potuto correggere: e' un guasto o un'instabilita' dell'hardware, non un virus, e di solito provoca un riavvio improvviso." `
+        "Salva i file importanti. Poi: controlla nel BIOS che overclock, PBO o Curve Optimizer siano disattivati, aggiorna il BIOS, e prova il processore con un test di stabilita'. Se gli errori continuano con tutto ai valori di fabbrica, il pezzo va fatto controllare."
 }
 
 Titolo "Crash e file di dump"
-$mini = Get-ChildItem -LiteralPath "$env:SystemRoot\Minidump" -Filter *.dmp
-if ($mini) {
+$mini = @(Get-ChildItem -LiteralPath "$env:SystemRoot\Minidump" -Filter *.dmp)
+if ($mini.Count -gt 0) {
     $ultimo = ($mini | Sort-Object LastWriteTime -Descending)[0]
-    Avviso "$($mini.Count) file di crash presenti. Ultimo: $($ultimo.LastWriteTime.ToString('dd/MM/yyyy HH:mm'))"
-    Nota "   Indicano schermate blu passate: spesso driver o memoria RAM difettosa."
+    $testoMini = "$($mini.Count) file di crash presenti. Ultimo: $($ultimo.LastWriteTime.ToString('dd/MM/yyyy HH:mm'))"
+    if ($ultimo.LastWriteTime -ge (Get-Date).AddDays(-30)) {
+        Avviso $testoMini
+        Nota "   Indicano schermate blu passate: spesso driver o memoria RAM difettosa."
+    } else { Nota "$testoMini (piu' di 30 giorni fa)" }
 } else { Ok "Nessun file di crash" }
 
 Titolo "Driver e periferiche"
@@ -851,17 +1000,6 @@ foreach ($r in $reg) {
 # dire "pericoloso" (molti programmi piccoli e legittimi non si firmano,
 # costa), ma resta un fatto verificabile che restringe cosa devi guardare
 # tu da 25 nomi a solo quelli senza un editore dichiarato.
-function TrovaEseguibileInstallato($x) {
-    if ($x.Icona) {
-        $p = ([string]$x.Icona -replace ',-?\d+$', '').Trim('"')
-        if ($p -match '(?i)\.exe$' -and (Test-Path -LiteralPath $p)) { return $p }
-    }
-    if ($x.Loc -and (Test-Path -LiteralPath $x.Loc)) {
-        $exe = Get-ChildItem -LiteralPath $x.Loc -Filter '*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($exe) { return $exe.FullName }
-    }
-    return $null
-}
 if ($rec) {
     $senzaFirma = 0
     foreach ($x in ($rec | Sort-Object Data -Descending | Select-Object -First 25)) {
@@ -903,6 +1041,7 @@ if ($rec) {
             Nota ("   {0:dd/MM/yyyy}  {1}" -f $x.Data, $x.Nome)
         }
     }
+    if (@($rec).Count -gt 25) { Nota "Altri $(@($rec).Count - 25) programmi recenti non controllati: l'elenco mostra solo i 25 piu' nuovi." }
     if ($senzaFirma -gt 0) {
         Nota "$senzaFirma senza firma digitale (segnalati sopra): non e' detto siano un problema, ma sono quelli su cui vale la pena essere sicuri di averli installati tu."
     }
@@ -923,10 +1062,10 @@ if ($completa) {
     # le versioni precedenti). Si cercano quindi solo le parole chiave che restano
     # stabili in ogni formulazione, non la frase intera.
     $sfcPulito = ($sfc -match 'did not find any integrity violations') -or ($sfc -match 'nessuna violazione')
-    $sfcRotto  = ($sfc -match 'found corrupt files') -or ($sfc -match 'danneggiat')
+    $sfcRotto  = $sfc -match 'violazion|integrity violation|found corrupt|danneggiat'
     if ($sfcPulito)     { Ok "File di sistema integri" }
     elseif ($sfcRotto)  { Problema "File di sistema danneggiati. Riparabili con: sfc /scannow (da amministratore)" }
-    else                { Nota "Esito non interpretabile automaticamente su questa lingua di Windows" }
+    else                { NonDisponibile "Verifica non riuscita o esito non interpretabile: non considerarla superata" }
 } else {
     Titolo "Integrita' dei file di sistema"
     Nota "Saltata: e' inclusa solo nella scansione completa (richiede minuti)."
@@ -942,8 +1081,11 @@ if (-not (Esiste 'Start-MpScan')) {
     Write-Host "  Scansione COMPLETA: ogni file di tutti i dischi." -ForegroundColor Yellow
     Write-Host "  Da 30 minuti a qualche ora. Puoi continuare a usare il PC." -ForegroundColor Gray
     Nota "Modalita': ogni file di tutti i dischi fissi"
-    Attendi (Start-MpScan -ScanType FullScan -AsJob) "scansione completa di tutti i dischi"
-    Ok "Scansione completa terminata"
+    $inizioEsame = Get-Date
+    $esameOk = Attendi (Start-MpScan -ScanType FullScan -AsJob) "scansione completa di tutti i dischi"
+    $fineEsame = (Get-MpComputerStatus).FullScanEndTime
+    if ($esameOk -and $fineEsame -and $fineEsame -ge $inizioEsame) { Ok "Scansione completa terminata" }
+    else { Attenzione "La scansione completa non risulta conclusa: il risultato qui sotto non copre tutti i file" }
 } else {
     # La scansione "rapida" di Defender guarda solo il disco di sistema.
     # Qui invece cerchiamo su TUTTI i dischi i file a rischio aggiunti di
@@ -1001,15 +1143,18 @@ if (-not (Esiste 'Start-MpScan')) {
     $elenco = @($finali) | Select-Object -First 40
     Nota "$nFile file a rischio recenti in $($cartelle.Count) cartelle su $($dischi.Count) dischi"
     Nota "Dopo aver unito le cartelle annidate: $($finali.Count) punti da esaminare"
-    Attendi (Start-MpScan -ScanType QuickScan -AsJob) "memoria e punti di avvio"
+    $esamiFalliti = 0
+    if (-not (Attendi (Start-MpScan -ScanType QuickScan -AsJob) "memoria e punti di avvio")) { $esamiFalliti++ }
     $i = 0
     foreach ($c in $elenco) {
         $i++
         $breve = $c
         if ($breve.Length -gt 48) { $breve = $breve.Substring(0, 22) + '...' + $breve.Substring($breve.Length - 23) }
-        Attendi (Start-MpScan -ScanPath $c -ScanType CustomScan -AsJob) ("({0}/{1}) {2}" -f $i, $elenco.Count, $breve)
+        if (-not (Attendi (Start-MpScan -ScanPath $c -ScanType CustomScan -AsJob) ("({0}/{1}) {2}" -f $i, $elenco.Count, $breve))) { $esamiFalliti++ }
     }
-    Ok "Esaminate memoria, punti di avvio e $($elenco.Count) cartelle su tutti i dischi"
+    if ($esamiFalliti -gt 0) { Attenzione "$esamiFalliti esami antivirus non si sono conclusi: il risultato qui sotto e' parziale" }
+    else { Ok "Esaminate memoria, punti di avvio e $($elenco.Count) punti scelti" }
+    if ($finali.Count -gt $elenco.Count) { Attenzione "Esaminati solo $($elenco.Count) punti su $($finali.Count): per gli altri serve la scansione completa" }
     Nota "Per aprire OGNI file di ogni disco serve la scansione completa."
 }
 
@@ -1041,6 +1186,8 @@ if (Esiste 'Get-MpThreat') {
             if ($ancoraPresente -or ($t.DidThreatExecute -and -not $azioneOk)) {
                 Allarme "MINACCIA ATTIVA: $($t.ThreatName) - presente sul disco o non rimossa con successo"
                 if ($peggiorAV -lt 2) { $peggiorAV = 2 }
+            } elseif ($t.ThreatName -like 'VulnerableDriver:*') {
+                Nota "$($t.ThreatName) - driver legittimo con una falla nota (non un virus), bloccato da Defender: non servono altre azioni"
             } elseif ($t.DidThreatExecute) {
                 Attenzione "$($t.ThreatName) - ha girato sul PC, rimossa con successo da Defender"
                 if ($peggiorAV -lt 1) { $peggiorAV = 1 }
@@ -1079,7 +1226,7 @@ function ImprontaSistema {
         $item = Get-ItemProperty -Path $k
         if (-not $item) { continue }
         foreach ($pr in $item.PSObject.Properties) {
-            if ($pr.Name -like 'PS*') { continue }
+            if ($proprietaPS -contains $pr.Name) { continue }
             $avvio += "$($pr.Name) = $($pr.Value)"
         }
     }
@@ -1091,7 +1238,7 @@ function ImprontaSistema {
 
     $tk = @()
     foreach ($t in (Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.State -ne 'Disabled' })) {
-        foreach ($a in $t.Actions) { if ($a.Execute) { $tk += "$($t.TaskName) -> $($a.Execute)" } }
+        foreach ($a in $t.Actions) { if ($a.Execute) { $tk += "$($t.TaskName) -> $("$($a.Execute) $($a.Arguments)".Trim())" } }
     }
     $h['attivita'] = @($tk | Sort-Object)
 
@@ -1176,8 +1323,27 @@ $etichette = [ordered]@{
 }
 # Un cambiamento in queste tre categorie e' un campanello serio, non una nota.
 $gravi3 = @('esclusioni','hosts','dns')
+# Sale quando cambia cosa viene salvato nell'impronta: dalla 2 le attivita' includono i parametri.
+$formatoImpronta = 2
+# Un aggiornamento cambia solo il numero di versione nel percorso: non e' una voce nuova.
+function SenzaVersione($voce) { return ([string]$voce -replace '(?<=\\)\d+(\.\d+)+(?=\\)', '*') }
+# Restituisce il motivo per cui una novita' non merita attenzione, o niente se la merita.
+function MotivoTranquillo($categoria, $voce) {
+    if ($categoria -notin @('avvio', 'attivita', 'servizi')) { return $null }
+    $comando = ($voce -split ' (?:->|=) ', 2)[-1]
+    if (ComandoPulizia $comando) { return "pulizia automatica lasciata da un programma" }
+    if (ComandoSospetto $comando) { return $null }
+    if (-not (FirmaValida $comando)) { return $null }
+    $firma = NomeFirmatario $comando
+    if ((EsuPercorsoSospetto $comando) -and $firma -notmatch '^Microsoft\b') { return $null }
+    return "firmato da $firma"
+}
 
-if (Test-Path -LiteralPath $fileStato) {
+if (-not $admin) {
+    # Senza amministratore mancano esclusioni e percorsi dei servizi: confrontarli darebbe
+    # falsi "NUOVO", e salvarli rovinerebbe il confronto della prossima scansione.
+    NonDisponibile "Confronto saltato: serve l'amministratore, avvia SENTINELLA.bat"
+} elseif (Test-Path -LiteralPath $fileStato) {
     try {
         $prec = Get-Content -LiteralPath $fileStato -Raw | ConvertFrom-Json
         $quando = [datetime]$prec.quando
@@ -1185,15 +1351,28 @@ if (Test-Path -LiteralPath $fileStato) {
         Nota "Ultima scansione: $($quando.ToString('dd/MM/yyyy HH:mm'))  ($gg giorni fa)"
         $cambiamenti = 0
         foreach ($chiave in $etichette.Keys) {
+            if ($chiave -eq 'attivita' -and $prec.formatoImpronta -ne $formatoImpronta) {
+                Nota "Attivita' pianificate: confronto ripreso dalla prossima scansione (Sentinella ora salva anche i parametri)"
+                continue
+            }
             $vecchi = @()
             if ($prec.impronta.$chiave) { $vecchi = @($prec.impronta.$chiave) }
             $nuovi = @($adesso[$chiave])
-            $aggiunti = @($nuovi | Where-Object { $vecchi -notcontains $_ })
-            $spariti  = @($vecchi | Where-Object { $nuovi -notcontains $_ })
+            $vecchiNorm = @($vecchi | ForEach-Object { SenzaVersione $_ })
+            $nuoviNorm  = @($nuovi | ForEach-Object { SenzaVersione $_ })
+            $aggiunti = @($nuovi | Where-Object { $vecchiNorm -notcontains (SenzaVersione $_) })
+            $spariti  = @($vecchi | Where-Object { $nuoviNorm -notcontains (SenzaVersione $_) })
             foreach ($x in $aggiunti) {
                 $cambiamenti++
                 $testo = "NUOVO in $($etichette[$chiave]): $x"
-                if ($gravi3 -contains $chiave) { Allarme $testo } else { Attenzione $testo }
+                if ($chiave -eq 'programmi') {
+                    $editore = (Get-ItemProperty -Path $reg | Where-Object { $_.DisplayName -eq $x } | Select-Object -First 1).Publisher
+                    if ($editore) { $testo += " (editore dichiarato: $editore)" }
+                }
+                $tranquillo = MotivoTranquillo $chiave $x
+                if ($gravi3 -contains $chiave) { Allarme $testo }
+                elseif ($tranquillo) { Nota "   $testo  [$tranquillo]" }
+                else { Attenzione $testo }
             }
             foreach ($x in $spariti) {
                 $cambiamenti++
@@ -1215,14 +1394,14 @@ if (Test-Path -LiteralPath $fileStato) {
     Nota "Dal prossimo controllo Sentinella ti dira' esattamente cosa e' cambiato."
 }
 
-try {
+if ($admin) { try {
     if (-not (Test-Path -LiteralPath $cartellaStato)) { New-Item -ItemType Directory -Path $cartellaStato -Force | Out-Null }
-    @{ quando = (Get-Date).ToString('o'); impronta = $adesso; versioneDefAV = $versioneDefAV } | ConvertTo-Json -Depth 6 |
+    @{ quando = (Get-Date).ToString('o'); impronta = $adesso; versioneDefAV = $versioneDefAV; formatoImpronta = $formatoImpronta } | ConvertTo-Json -Depth 6 |
         Out-File -FilePath $fileStato -Encoding utf8
     Nota "Impronta aggiornata in $fileStato"
 } catch {
     Attenzione "Non sono riuscito a salvare l'impronta per il prossimo confronto"
-}
+} }
 
 # =====================================================================
 $durata = [math]::Round(((Get-Date) - $inizio).TotalMinutes,1)
@@ -1338,7 +1517,7 @@ $glossario = [ordered]@{
         Fai  = "E' tecnico: la cosa piu' sicura e' far vedere il report a qualcuno esperto, o cercare online il nome esatto del servizio segnalato prima di toccarlo."
     }
     'Estensioni del browser' = @{
-        Cosa = "Hai installato un'estensione nel browser di recente. Le estensioni possono leggere tutto quello che scrivi e vedi online, password comprese."
+        Cosa = "Risulta un'estensione installata di recente nel browser, non di serie. Le estensioni possono leggere tutto quello che scrivi e vedi online, password comprese."
         Fai  = "Nel browser: tre puntini > Estensioni > Gestisci estensioni. Controlla quella segnalata; se non l'hai installata tu di proposito, rimuovila."
     }
     'Rete: file hosts, proxy, DNS' = @{
@@ -1378,7 +1557,7 @@ $glossario = [ordered]@{
         Fai  = "Impostazioni > Windows Update > Verifica aggiornamenti, installa quello che trovi e riavvia quando richiesto."
     }
     'Programmi installati di recente' = @{
-        Cosa = "Uno o piu' programmi installati di recente non hanno una firma digitale: non e' per forza un problema (molti programmi piccoli e legittimi non si firmano), ma sono uno a caso o due su cui non c'e' un editore dichiarato a garantire per loro."
+        Cosa = "Uno o piu' programmi installati di recente non hanno una firma digitale: non e' per forza un problema (molti programmi piccoli e legittimi non si firmano), ma su questi non c'e' un editore verificato a garantire per loro."
         Fai  = "Guarda solo quelli segnalati 'NON firmato digitalmente' qui sopra (non l'intera lista, gli altri hanno gia' un editore riconosciuto): se non ricordi di averli installati tu, cercali online prima di lasciarli sul PC."
     }
     "Integrita' dei file di sistema" = @{

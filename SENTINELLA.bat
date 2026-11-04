@@ -11,7 +11,9 @@ if not exist "%~dp0sentinella.ps1" (
     exit /b 1
 )
 
-net session >nul 2>&1
+rem fltmc e non "net session": quello fallisce se il servizio Server e' spento,
+rem e la richiesta di permessi si ripeterebbe all'infinito.
+fltmc >nul 2>&1
 if %errorLevel% neq 0 (
     echo.
     echo   Sentinella ha bisogno dei permessi di amministratore per
