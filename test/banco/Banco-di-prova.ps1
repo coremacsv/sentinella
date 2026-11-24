@@ -64,9 +64,10 @@ Log "Eseguibile finto creato: $exe"
 $tracce = @(
     @{ Id = 'T1547.001-a'; Nome = 'Chiave Run con PowerShell nascosto e offuscato'; Atteso = 'grave'; Cerca = "$M-Run-Enc"
        Piazza = { $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes("Write-Output 'ciao'"))
-                  Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' "$M-Run-Enc" "powershell.exe -w hidden -enc $enc" } }
+                  $k = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'; if (-not (Test-Path $k)) { New-Item $k -Force | Out-Null }
+                  Set-ItemProperty $k "$M-Run-Enc" "powershell.exe -w hidden -enc $enc" } }
     @{ Id = 'T1547.001-b'; Nome = 'Chiave Run con eseguibile non firmato in AppData'; Atteso = 'grave'; Cerca = "$M-Run-Exe"
-       Piazza = { Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' "$M-Run-Exe" "`"$exe`"" } }
+       Piazza = { if (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run')) { New-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Force | Out-Null }; Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' "$M-Run-Exe" "`"$exe`"" } }
     @{ Id = 'T1547.001-c'; Nome = 'Collegamento nella cartella Esecuzione automatica'; Atteso = 'da-guardare'; Cerca = "$M-avvio.lnk"
        Piazza = { $l = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\$M-avvio.lnk"); $l.TargetPath = $exe; $l.Save() } }
     @{ Id = 'T1053.005-a'; Nome = 'Attivita pianificata con eseguibile non firmato'; Atteso = 'grave'; Cerca = "$M-Task-Exe"
@@ -150,11 +151,17 @@ Log "Falsi allarmi sul sistema pulito: $($falsi.Count)"
 
 # 2. Tracce.
 foreach ($t in $tracce) {
-    try { & $t.Piazza; $t.Piazzata = $true; Log "Piazzata  $($t.Id)  $($t.Nome)" }
+    # 'Stop': un piazzamento fallito deve risultare fallito, non 'piazzato' in silenzio.
+    try { $ErrorActionPreference = 'Stop'; & $t.Piazza; $t.Piazzata = $true; Log "Piazzata  $($t.Id)  $($t.Nome)" }
     catch { $t.Piazzata = $false; $t.Errore = $_.Exception.Message; Log "NON piazzata $($t.Id): $($_.Exception.Message)" }
+    finally { $ErrorActionPreference = 'Continue' }
 }
-# BAM registra gli avvii con qualche secondo di ritardo.
-Start-Sleep 20
+# BAM registra gli avvii con un certo ritardo: si aspetta e si verifica
+# direttamente se Windows l'ha annotato, per distinguere un limite di
+# Windows da un errore di Sentinella.
+Start-Sleep 60
+$bam = Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services\bam\State\UserSettings' -ErrorAction SilentlyContinue | ForEach-Object { (Get-ItemProperty $_.PSPath).PSObject.Properties.Name } | Where-Object { $_ -like "*$M-usa-e-getta*" }
+Log "BAM ha annotato l'avvio del programma usa-e-getta: $(if ($bam) { 'si' } else { 'NO (limite di Windows, non di Sentinella)' })"
 $sporco = Scansiona 'con-tracce'
 
 # 3. Confronto.
@@ -201,3 +208,6 @@ Log "RISULTATO: rilevate $($rilevate.Count) su $($piazzate.Count), falsi allarmi
 # Su GitHub la tabella compare direttamente nella pagina della prova.
 if ($env:GITHUB_STEP_SUMMARY) { $md | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8 }
 Set-Content (Join-Path $Risultati 'banco-finito.txt') "banco-$stamp"
+# Il codice di uscita e' quello del banco (riuscito), non quello di Sentinella:
+# che Sentinella trovi qualcosa di grave e' proprio il risultato atteso.
+exit 0
