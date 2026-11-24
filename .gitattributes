@@ -1,0 +1,4 @@
+# I .ps1 sono firmati digitalmente: la firma copre i byte esatti del file.
+# Git non deve convertire i fine riga, o la firma risulterebbe rotta
+# (Sentinella segnalerebbe i propri file come "modificati dopo la firma").
+*.ps1 -text
