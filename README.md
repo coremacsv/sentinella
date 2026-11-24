@@ -10,6 +10,8 @@
                                                                              ~ by lozy ~
 ```
 
+[![Verifica](https://github.com/coremacsv/sentinella/actions/workflows/verifica.yml/badge.svg)](https://github.com/coremacsv/sentinella/actions/workflows/verifica.yml)
+
 Diagnosi di sicurezza e salute per Windows. Doppio clic, scegli quanto a fondo, leggi il verdetto.
 
 Non è un antivirus: non rimuove niente, non protegge in tempo reale. Guarda se il sistema è stato manomesso — esclusioni antivirus, avvii automatici, Winlogon, IFEO, attività pianificate, estensioni del browser, proxy, DNS, file hosts — cerca le tracce lasciate dagli infostealer (comandi incollati da finti CAPTCHA, programmi scaricati e avviati, Discord manomesso) e come sta il PC (dischi, SMART, memoria, crash, errori hardware, driver). Poi ricorda cosa ha trovato, e alla scansione successiva ti dice cosa è cambiato. Per ogni cosa che trova, spiega cosa significa e dove andare a sistemarla — pensato per chi non mastica informatica, non solo per chi già sa cosa cercare.
@@ -70,6 +72,21 @@ Nessuna domanda, nessun output a schermo oltre a una riga di riepilogo, report J
 
 I file `.ps1` sono firmati digitalmente dall'autore. A ogni scansione Sentinella verifica le proprie firme: se un file è stato modificato dopo la firma, lo segnala in rosso. Limite onesto: ferma modifiche accidentali e malware generici, non un attacco costruito apposta contro Sentinella. Chi modifica il codice rifirma con `strumenti\Firma-Sentinella.ps1` (crea un certificato personale con chiave non esportabile; non tocca le autorità attendibili di Windows).
 
+## Quanto rileva davvero: il banco di prova
+
+A ogni pubblicazione, su un computer Windows di GitHub acceso per l'occasione e cancellato alla fine, `test\banco\Banco-di-prova.ps1` piazza **20 tracce finte e innocue** che imitano tecniche reali catalogate in MITRE ATT&CK, poi lancia Sentinella e conta quante ne scopre. Gli eseguibili finti non fanno nulla, i link puntano a domini `.invalid`, l'unico "virus" è il file di prova EICAR. Lo script si rifiuta di partire fuori da una macchina usa e getta.
+
+Ultimo risultato (v3.1, modalità Rapida, Windows Server 2025): **19 tracce rilevate su 20**.
+
+| Rilevate | Tecniche |
+|---|---|
+| ✅ | chiave Run con PowerShell offuscato o eseguibile non firmato · collegamento in Esecuzione automatica · attività pianificata con eseguibile non firmato o "scarica ed esegui" · servizio non firmato · sottoscrizione WMI · dirottamento IFEO · Winlogon Userinit · esclusione di Defender · file hosts · proxy · ClickFix (Win+R) · FileFix (Esplora file) · cronologia PowerShell · eseguibile scaricato da internet · processo non firmato da AppData · Discord manomesso · EICAR |
+| ⚠️ | programma avviato dai Download e poi cancellato: su quel computer Windows non annota l'avvio (registro BAM), quindi non è verificabile lì |
+
+Onestamente: le tracce sono quelle che Sentinella sa cercare, quindi il 19/20 dice che i controlli funzionano come progettati, non che rileva qualsiasi malware. Sul computer di GitHub "pulito" Sentinella fa anche 24 segnalazioni: quasi tutte vere per quella macchina (Defender spento ed esclusioni su C:\ e D:\ messe da GitHub, agenti di GitHub non firmati).
+
+Il banco si può far girare anche in Windows Sandbox con `test\banco\Avvia-Banco.ps1`, se la Sandbox è attiva.
+
 ## Test
 
 La logica che decide cosa è sospetto sta in `moduli\Analisi.ps1` ed è provata con dati finti in `test\`:
@@ -97,6 +114,8 @@ moduli\Confronto.ps1    parte E
 moduli\Report.ps1       schermo, testo, pagina web, JSON
 strumenti\              firma del codice (per l'autore)
 test\                   test automatici
+test\banco\             banco di prova con tracce finte (solo macchine usa e getta)
+.github\workflows\      controllo automatico a ogni pubblicazione
 ```
 
 ## Perché non è un `.exe`
