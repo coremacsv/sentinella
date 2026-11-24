@@ -228,12 +228,14 @@ function C_Processi {
         $q = "`"$($p.Path)`""
         if (EsuPercorsoSospetto $q) {
             if (FirmaValida $q) { Nota "   $($p.ProcessName) - fuori da Programmi ma firmato da $(NomeFirmatario $q)" }
-            elseif (QuandoConfermato $q) { Nota "   $($p.ProcessName) - non firmato, riconosciuto da te il $(QuandoConfermato $q) (stessa impronta)" }
+            elseif (GiaRiconosciuto $q $p.ProcessName) { }
             else {
                 $b++
                 $prop = ProprietarioDi $q
-                if ($prop) { Attenzione "$($p.ProcessName) NON firmato, in esecuzione da $($p.Path) - parte del programma installato '$prop'  [SHA256 $(Impronta $q)]" }
-                else { Attenzione "$($p.ProcessName) NON firmato, in esecuzione da $($p.Path)  [SHA256 $(Impronta $q)]" }
+                if ($prop) { $t = "$($p.ProcessName) NON firmato, in esecuzione da $($p.Path) - parte del programma installato '$prop'  [SHA256 $(Impronta $q)]"; $d = "probabilmente parte di '$prop'" }
+                else { $t = "$($p.ProcessName) NON firmato, in esecuzione da $($p.Path)  [SHA256 $(Impronta $q)]"; $d = "in esecuzione ora, fuori da Programmi" }
+                Attenzione $t
+                if ((StatoConferma $q) -ne 'no') { ProponiFile $q $d 1 $t }
             }
         }
     }
@@ -406,12 +408,14 @@ function C_Connessioni {
                 # In Lampo niente risoluzione dei nomi: fino a 700 ms per indirizzo.
                 if ($script:lampo) { $dest = ($ips -join ', ') }
                 else { $dest = (($ips | ForEach-Object { NomeHost $_ }) -join ', ') }
-                if ($pr -and $pr.Path -and (EsuPercorsoSospetto $pr.Path) -and -not (FirmaValida $pr.Path)) {
+                $q = "`"$($pr.Path)`""
+                if ($pr -and $pr.Path -and (EsuPercorsoSospetto $q) -and -not (FirmaValida $q) -and -not (GiaRiconosciuto $q "$nome -> $dest")) {
                     $anomale++
-                    $prop = ProprietarioDi "`"$($pr.Path)`""
-                    if ($prop) { Attenzione "$nome (non firmato, parte di '$prop') collegato a $dest  [SHA256 $(Impronta $pr.Path)]" }
-                    else { Allarme "$nome (non firmato, da cartella anomala) collegato a $dest  [SHA256 $(Impronta $pr.Path)]" }
-                } else { Nota "   $nome -> $dest" }
+                    $prop = ProprietarioDi $q
+                    if ($prop) { $t = "$nome (non firmato, parte di '$prop') collegato a $dest  [SHA256 $(Impronta $q)]"; Attenzione $t; $liv = 1; $d = "probabilmente parte di '$prop', collegato a internet" }
+                    else { $t = "$nome (non firmato, da cartella anomala) collegato a $dest  [SHA256 $(Impronta $q)]"; Allarme $t; $liv = 2; $d = "collegato a internet, non appartiene a nessun programma installato" }
+                    if ((StatoConferma $q) -ne 'no') { ProponiFile $q $d $liv $t }
+                } elseif (-not ($pr -and $pr.Path -and (QuandoConfermato $q))) { Nota "   $nome -> $dest" }
             }
         } else { Nota "Nessuna connessione esterna attiva in questo momento" }
         if ($anomale -eq 0) { Ok "Nessun programma non firmato da cartelle anomale collegato a internet" }
@@ -424,11 +428,12 @@ function C_Connessioni {
         Nota "Se vedi un account che non hai creato tu, e' un problema serio."
     } else { NonDisponibile "Elenco account non disponibile su questo sistema" }
 }
+
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCvQFeoM9JOfG5s
-# akWtPK/Zt2FuQtogYgdAOx1pDoiJOKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAF5nfL+241PIhc
+# R1R8pYLCm7JrdA4DAt92OZ3g3Cl1N6CCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -454,14 +459,14 @@ function C_Connessioni {
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCBrvYlL8kTv3KrD
-# nAUPykvLM7+NfyvISFkntsMkDFeOvzANBgkqhkiG9w0BAQEFAASCAYBXpjpvShh4
-# IzoFhKmFcwH9MkInzv9x9x3lfp9u8+JJ261ZSlEXux1Tp7yab81JRuK5cEeJGlnV
-# Si21ijotG+AgOAL32RCKVg16Z9ODJmNVIVq9VuzS8Q3J0qE/cLoNgFT/V5UJqn3E
-# hZzCpCvKqyrZcMEbIOl9TBanuAn+OlxGN6c40hNoVEC2vdxTZ+cv7UxsnzDfDVeh
-# AH3GcYubhSiSMFgSMNQbA8z+OU9wuR4mREWcEHpKMoQPck9+GHeaJQoEsxVMxb5N
-# rQHBXpQbb43zme+TN8OzWUEHm7woDuszHTyxCWhzKRpfn7vl65k8Qa2UmW79utOs
-# +Xj3GJ41DJ69JxUNy7HQv1ZjtK5HneePvwhGKHt83vbLSAtYbAvyBU9f+I7zZIBB
-# T/E81P7sSSqrMXmqWhgVtpu0za/cne2Lzqev3TKu22+U8F4Gb/icVOSmsncIJ/Fr
-# 2RYstOM23zULGyYsTW/ZKd18bcPK2hQK1GtnLZyD/oqGmPqMaQF6re0=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCD4ltELYPgsOegJ
+# SXpd23y9h0cjl0/lIY0tZGSLCnKhZTANBgkqhkiG9w0BAQEFAASCAYAwC2akgOD1
+# d5bPGS83Tz+dDYyXQU7R+NbUUQ7ZwI7DisBd68Pkv4J7k0yYvbcwz1hf/o/EHLNg
+# V0WoUGZa7/Ut6e5FV0s+Pe5HeniH8RekBN3YbXClH9rC8LpZgelWjHKfglxNQptw
+# WWbeAth6u+zrp3uBNJ7PTdiVU3Y4rLaMK0DwIEUEhGf2fouTCHHbUKtryXMW3+O1
+# taJzW9zk1hu7+NyH0Ma+3mIQWe4+m8gZAs0+J8JDKUDakQAD5aXjGR5mGAJVoSvE
+# LkWes2Z64UD89UN+wU5D3oZjZGeIMEhv7Q8qnvmNn/BNQ5Q1e9tG0GzCosjPYnH5
+# o79PIWYDCzU/Cb9i6MMVZJ/IZgCiVRQ/wVSY0JEQI7aDqltaTiWgx9qFG4bSsCb9
+# Y2q5tdctc94Sikzd8TpjI6n69hx5vXAJgMnpHRgP/a4BkV54LhWdiAqrWzD5Iy7e
+# 184eBwf/ccmpFus+M8++pvXtpO08NfuWkbDS/DFrmqOlU/lnfe52dBM=
 # SIG # End signature block

@@ -167,22 +167,20 @@ $conferme      = CaricaJsonTabella $fileConferme
 $confermeFile  = CaricaJsonTabella $fileConfermeF
 function SalvaConferme { SalvaJsonTabella $script:conferme $script:fileConferme }
 
-# Restituisce 'si', 'no', oppure $null se la domanda non e' stata posta
-# (modalita' Lampo o silenziosa: li' non si chiede mai nulla).
-function ConfermaFile([string]$percorso, [string]$descrizione) {
+# ----------------------------------------------------- LISTA DA RICONOSCERE
+# Fino alla v3.0 Sentinella faceva una domanda per ogni file non firmato,
+# a meta' scansione: su un PC con 20 programmi non firmati erano 20
+# domande di fila, e chi ne riceve 20 finisce per rispondere "si" a tutto
+# senza leggere. Ora durante la scansione non si chiede nulla: i file
+# vengono raccolti qui, e alla fine compare UNA lista numerata con una
+# sola risposta (ChiediConferme). I piu' sospetti stanno in cima.
+$daConfermare = [ordered]@{}
+
+# 'si', 'no', oppure $null se non hai mai risposto per questo file.
+function StatoConferma([string]$percorso) {
     $h = Impronta $percorso
-    if (-not $h) { return $null }
-    if ($script:confermeFile.ContainsKey($h)) { return [string]$script:confermeFile[$h].risposta }
-    if ($script:lampo -or $script:silenzioso) { return $null }
-    Scrivi "" Gray
-    Scrivi "     $descrizione" Yellow
-    Scrivi "     file: $(EstraiEseguibile $percorso)" Gray
-    $r = ChiediSiNo "       Lo riconosci, l'hai installato tu? [S] si  [N] no/non so (INVIO = no)"
-    $risposta = 'no'
-    if ($r) { $risposta = 'si' }
-    $script:confermeFile[$h] = @{ risposta = $risposta; quando = (Get-Date).ToString('dd/MM/yyyy'); percorso = (EstraiEseguibile $percorso) }
-    SalvaJsonTabella $script:confermeFile $script:fileConfermeF
-    return $risposta
+    if ($h -and $script:confermeFile.ContainsKey($h)) { return [string]$script:confermeFile[$h].risposta }
+    return $null
 }
 function QuandoConfermato([string]$percorso) {
     $h = Impronta $percorso
@@ -190,30 +188,123 @@ function QuandoConfermato([string]$percorso) {
     if ($h -and $script:confermeFile.ContainsKey($h) -and $script:confermeFile[$h].risposta -eq 'si') { return [string]$script:confermeFile[$h].quando }
     return ''
 }
+# Mette una voce nella lista finale, collegata al reperto appena segnalato:
+# se alla fine la riconosci, quel reperto viene ritirato dal verdetto.
+# Lo stesso file visto da piu' controlli (es. attivita' + processo) compare
+# una volta sola nella lista.
+function ProponiConferma([string]$tipo, [string]$chiave, [string]$nome, [string]$dettaglio, [int]$livello, [string]$testo) {
+    if (-not $chiave) { return }
+    if (-not $script:daConfermare.Contains($chiave)) {
+        $script:daConfermare[$chiave] = [pscustomobject]@{
+            Tipo = $tipo; Chiave = $chiave; Nome = $nome; Dettaglio = $dettaglio; Livello = $livello
+            Rif = (New-Object System.Collections.ArrayList)
+        }
+    }
+    $v = $script:daConfermare[$chiave]
+    if ($livello -gt $v.Livello) { $v.Livello = $livello; $v.Dettaglio = $dettaglio }
+    [void]$v.Rif.Add(@{ Controllo = $script:checkCorrente; Testo = $testo })
+}
+function ProponiFile([string]$percorso, [string]$dettaglio, [int]$livello, [string]$testo) {
+    $h = Impronta $percorso
+    if (-not $h) { return }
+    ProponiConferma 'file' $h (EstraiEseguibile $percorso) $dettaglio $livello $testo
+}
+# Per i controlli che trovano un file non firmato: se l'hai gia' riconosciuto
+# scrive una nota e restituisce $true (non c'e' altro da fare).
+function GiaRiconosciuto([string]$percorso, [string]$etichetta) {
+    $q = QuandoConfermato $percorso
+    if (-not $q) { return $false }
+    Nota "   $etichetta - non firmato, riconosciuto da te il $q (stessa impronta)"
+    return $true
+}
 
 # Valuta un file NON firmato che parte da solo (avvio, attivita', servizio)
 # e lo segnala al livello giusto:
-#   confermato da te (stessa impronta)       -> nota
-#   pezzo riconosciuto di un programma installato -> giallo
-#   nessuna delle due                         -> rosso
+#   riconosciuto da te (stessa impronta)          -> nota
+#   pezzo riconosciuto di un programma installato  -> giallo
+#   nessuna delle due                              -> rosso
 function ValutaNonFirmato([string]$percorso, [string]$descrizione) {
+    if (GiaRiconosciuto $percorso $descrizione) { return }
     $hash = Impronta $percorso
     $proprietario = ProprietarioDi $percorso
     $noto = $null
     if ($proprietario) { $noto = ComponenteNoto $proprietario }
     if (-not $noto) { $noto = ComponenteNoto ([System.IO.Path]::GetFileNameWithoutExtension((EstraiEseguibile $percorso))) }
-    $risposta = ConfermaFile $percorso $descrizione
-    if ($risposta -eq 'si') {
-        Nota "   $descrizione - non firmato, riconosciuto da te il $(QuandoConfermato $percorso) (stessa impronta)"
-        return
-    }
+    $giaNo = ((StatoConferma $percorso) -eq 'no')
+    $coda = ''
+    if ($giaNo) { $coda = ' - segnato da te come NON riconosciuto' }
     if ($proprietario) {
         $testo = "$descrizione - NON firmato, ma risulta parte del programma installato '$proprietario'"
         if ($noto) { $testo += " ($noto)" }
-        Attenzione "$testo  [SHA256 $hash]"
+        $testo += "$coda  [SHA256 $hash]"
+        Attenzione $testo
+        if (-not $giaNo) { ProponiFile $percorso "probabilmente parte di '$proprietario'" 1 $testo }
         return
     }
-    Allarme "$descrizione - file NON firmato, non riconducibile a nessun programma installato  [SHA256 $hash]"
+    $testo = "$descrizione - file NON firmato, non riconducibile a nessun programma installato$coda  [SHA256 $hash]"
+    Allarme $testo
+    if (-not $giaNo) { ProponiFile $percorso "non appartiene a nessun programma installato" 2 $testo }
+}
+
+# La lista finale: una schermata, una risposta.
+function ChiediConferme {
+    if ($script:silenzioso -or $script:daConfermare.Count -eq 0) { return }
+    $voci = @($script:daConfermare.Values | Sort-Object @{ Expression = { $_.Livello }; Descending = $true }, Nome)
+    $n = $voci.Count
+    Write-Host ""
+    Write-Host ("=" * 74) -ForegroundColor White
+    Write-Host "   PROGRAMMI DA RICONOSCERE" -ForegroundColor White
+    Write-Host ("=" * 74) -ForegroundColor White
+    Write-Host ""
+    Write-Host "   Sentinella ha trovato $n file o programmi senza firma digitale." -ForegroundColor Gray
+    Write-Host "   Non vuol dire che siano pericolosi: solo tu sai se sono tuoi." -ForegroundColor Gray
+    Write-Host "   Quelli in ROSSO non appartengono a nessun programma installato:" -ForegroundColor Gray
+    Write-Host "   guardali con piu' attenzione." -ForegroundColor Gray
+    Write-Host ""
+    for ($i = 0; $i -lt $n; $i++) {
+        $v = $voci[$i]
+        $col = 'Yellow'; if ($v.Livello -ge 2) { $col = 'Red' }
+        $nome = $v.Nome
+        if ($nome.Length -gt 64) { $nome = '...' + $nome.Substring($nome.Length - 61) }
+        Write-Host ("   [{0,2}]  {1}" -f ($i + 1), $nome) -ForegroundColor $col
+        $dove = (@($v.Rif | ForEach-Object { ($_.Controllo -split '  ')[0] }) | Select-Object -Unique) -join ', '
+        Write-Host ("         {0}  -  trovato in: {1}" -f $v.Dettaglio, $dove) -ForegroundColor DarkGray
+    }
+    Write-Host ""
+    Write-Host "   Quali riconosci come tuoi?" -ForegroundColor White
+    Write-Host "     T        tutti" -ForegroundColor Gray
+    Write-Host "     1,3 5-7  solo quelli con questi numeri" -ForegroundColor Gray
+    Write-Host "     N        nessuno: restano segnalati, e non te li richiedo" -ForegroundColor Gray
+    Write-Host "     INVIO    decido un'altra volta: te li richiedo alla prossima scansione" -ForegroundColor Gray
+    Write-Host "   La risposta e' legata all'impronta del file: se il file cambia, te lo richiedo." -ForegroundColor DarkGray
+    do {
+        $r = InterpretaRisposta (Read-Host "   Risposta") $n
+        if (-not $r) { Write-Host "   Risposta non valida: scrivi T, N, dei numeri da 1 a $n, oppure premi INVIO." -ForegroundColor Yellow }
+    } while (-not $r)
+
+    $quando = (Get-Date).ToString('dd/MM/yyyy')
+    $riconosciuti = 0
+    for ($i = 0; $i -lt $n; $i++) {
+        $v = $voci[$i]
+        $risposta = $null
+        if ($r.Azione -eq 'nessuno') { $risposta = 'no' }
+        elseif ($r.Numeri -contains ($i + 1)) { $risposta = 'si' }
+        if (-not $risposta) { continue }
+        if ($v.Tipo -eq 'programma') { $script:conferme[$v.Nome] = @{ risposta = $risposta; quando = $quando } }
+        else { $script:confermeFile[$v.Chiave] = @{ risposta = $risposta; quando = $quando; percorso = $v.Nome } }
+        if ($risposta -eq 'si') {
+            $riconosciuti++
+            foreach ($rif in $v.Rif) { RitiraReperto $rif.Controllo $rif.Testo "riconosciuto da te il $quando" }
+        }
+    }
+    SalvaConferme
+    SalvaJsonTabella $script:confermeFile $script:fileConfermeF
+    Write-Host ""
+    switch ($r.Azione) {
+        'dopo'    { Write-Host "   Va bene: restano segnalati e te li richiedo alla prossima scansione." -ForegroundColor DarkGray }
+        'nessuno' { Write-Host "   Segnati come non riconosciuti: restano nel report, non te li richiedo." -ForegroundColor DarkGray }
+        default   { Write-Host "   $riconosciuti riconosciuti: il verdetto qui sotto ne tiene gia' conto." -ForegroundColor Green }
+    }
 }
 
 # Traduzione "\Device\HarddiskVolumeN" -> "C:" per i percorsi salvati da Windows in forma interna.
@@ -234,11 +325,12 @@ public static extern uint QueryDosDevice(string lpDeviceName, System.Text.String
     } catch { }
     return $m
 }
+
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAzvMwZmcNPXcoE
-# PnAmN8GLlM2kTOCVV20GXongrQfVOKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBSXXR+CFtnhzlx
+# KAc3Zv23RzotRrUvCzcBUg3MmG7zGKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -264,14 +356,14 @@ public static extern uint QueryDosDevice(string lpDeviceName, System.Text.String
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCDe6rslbKYO/JLX
-# CK2Roaj64Ti6ld1rbZ3ea6W+ZdSjGzANBgkqhkiG9w0BAQEFAASCAYCZfUOYA5S8
-# wHK9E/d3/F+UK8RKrmQ54CoS5XpE+OgFR/OKeCkZv+RNAXxpAeAPTOdKz/Vttgjt
-# vq/USy9fERc/ok5A9TzPMIlnqlwlNo7E3pnsaPytxvCELEiCO2pr+LETYnm7/pHA
-# O7IK/8hpyTSPh37rUDPvZwNrTodqFgXd0MmaOsRUmIvytzsu/ue4IXifVxW8XMWT
-# tMRbADuZ7vaggcQZN/OPCmi6i8MyAVjz9E20Ykez+jxDYSECPn6tIoJx3Al4yf5W
-# v+QQvQzjb4K/8fW9+tTbOqzArzDcxdXuOdCPpHGeOfjEmyjffLkKryiXvELusbGI
-# MSv1H7ePVp82ZJAnxIJDDxGuJG7C+p6peRDXSbxgdohSWZxQGE+1mbmT+rznWki2
-# OCRl3GgcgWpPl0kIiur0Yq0x1w/FtIoUcWsHNXdLv6M1PV0fjXbvoWdkYsGC9OhS
-# qn1A95rY56y7PP+Ilhua46gkvBFveqpVQOynrjWFMaMHodj737O7eaU=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAns37mA8G8od5D
+# 69XUu30zfBBwMzvRk28Eo7yuTdDwqDANBgkqhkiG9w0BAQEFAASCAYBM2H0bRT0t
+# BsHULCni9Ht652oECUg4GBoT1vhnHXnBjQeG+5Fnw9NIrH+ihH4ZxIDTOJWAGUvq
+# SuJtfyFnFVovCLkk5GIdMZ/7Y6vNlQwj2lrGVDTRpfSLNA5YtE84bccPz6iO8LKf
+# g5JpCD2mhHq1B0SX8eRGMKe39lg+OSvxF3h4EE3mFTdMeKToSRTgxr5Wg6HFsXAq
+# riucYmfQDOLKGENrnYbVY5X/CO+M+bGmRjV25GAtcDYDqqVsHZXk3Ss8ef3H6qEX
+# 3suvKi8gxzGjpQvKkQ+EBlocvwOtJ4LZP8MHzlLESBHMLAY//VaiDgYziPnrr0nw
+# lCCyxsEaXLlvAOedpIxbxjtQTHb4d5E6Tg4tSdvAVm+sQS9tW1GAokHNO5ycM3z0
+# F1KnrEgs3G1YYq2N4ectSM5hnnvNIp7nDd8oL7mikKjA31gG87KhbDZte7ByBfU8
+# qOo6oupaFBPVrRh+6etjBRJO2oY3ctZSL31+fbzPEEiMOONVEse32Fo=
 # SIG # End signature block

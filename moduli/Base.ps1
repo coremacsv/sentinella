@@ -109,6 +109,34 @@ function NonVerificato($m) {
     }
 }
 
+# Toglie dal verdetto un reperto gia' segnalato (es. un programma non
+# firmato che alla fine riconosci come tuo) e ricalcola l'esito del suo
+# controllo come se quel reperto non ci fosse mai stato. La riga resta
+# nel dettaglio, marcata, cosi' il report dice anche COSA hai confermato.
+function RitiraReperto([string]$controllo, [string]$testo, [string]$motivo) {
+    foreach ($lista in @($script:allarmi, $script:sospetti, $script:problemi, $script:avvisi)) {
+        while ($lista.Contains($testo)) { $lista.Remove($testo) }
+    }
+    foreach ($r in $script:reperti) {
+        if ($r['controllo'] -eq $controllo -and $r['testo'] -eq $testo -and $r['livello'] -ne 'nota') {
+            $r['livello'] = 'nota'
+            $r['testo'] = "$testo  [$motivo]"
+        }
+    }
+    Riga "  [..] ${controllo}: $motivo -> $testo"
+    RicalcolaEsito $controllo
+}
+function RicalcolaEsito([string]$controllo) {
+    $liv = @($script:reperti | Where-Object { $_['controllo'] -eq $controllo } | ForEach-Object { $_['livello'] })
+    $e = 0
+    if (@($liv | Where-Object { $_ -like '*-grave' }).Count) { $e = 2 }
+    elseif (@($liv | Where-Object { $_ -like '*-da-guardare' }).Count) { $e = 1 }
+    elseif ($liv -contains 'non-verificato') { $e = 4 }
+    elseif ($liv -contains 'ok' -or $liv -contains 'nota') { $e = 0 }
+    elseif ($liv -contains 'non-applicabile') { $e = 3 }
+    $script:esiti[$controllo] = $e
+}
+
 function Esiste($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 
 # Legge un dato da Windows trasformando OGNI errore in un "non verificato"
@@ -215,19 +243,11 @@ function AttendiProcesso($proc, $etichetta) {
     }
 }
 
-# Domanda si/no che in modalita' silenziosa non blocca mai: restituisce $null
-# ("non chiesto"), e chi chiama tratta il caso come una risposta mancante.
-function ChiediSiNo([string]$domanda) {
-    if ($script:silenzioso) { return $null }
-    $r = Read-Host $domanda
-    return ($r -match '^\s*[SsYy]')
-}
-
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCq+fpZorw/hoMa
-# pGhFM5+/sobRLLPNFKhLsFMxn+4BM6CCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAwh2XEAZ+PKsyy
+# CQKtnEKL9Bdx3Fn68ReLF+kxn0+1C6CCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -253,14 +273,14 @@ function ChiediSiNo([string]$domanda) {
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCDB1xJ11Ba2tdpN
-# bsFKFcHLooVJP8GQKUDB2nCAOxBVOzANBgkqhkiG9w0BAQEFAASCAYAAQ0bvQI2B
-# Tj1OH+9akrnlRiqDlMn9rRE9FpXcA01FWpgMUDVU6sGrhQFHzkwV5LCenjREL6MC
-# IIDAgrBzSengttjGXzA1xi+umM+qrwYJbjbdc356Bcq+qC4itaujEbhdtTtYqNK6
-# mErAqE1JMd7wN0Y4EF7MNlmgHojCfie8dECpYUdw/c2BBjRScjFxGWvK4As/Y4yT
-# L6SDDg1tNUCDv60JWgYPocmEaJbG2+LsMHU0RpOGH9YcAKqr0dWb2AM5USVjj/OE
-# Ftb+fA47VUVPw+TvJlivA+NKFy9TXO9alSv0BsiJPVdgtXqN8Ll2IWr8v8t5A5vv
-# wT4facZMX/e00vLdYJ48EX0EDkQ+lYjxTLDTaWudF/11B0q2DTqgEBUk7sggqYan
-# bHZSfLaylh/I1TfiQ7RAYKo47vAc49NUhhOje98A/2JLaQBJdsZx25moYZir1gZV
-# dAAl15cb6ZIJs5ea+TGanG2ntNnNEUBlz7ks3OS/GI0iMTG9tbnmvIk=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCA92246ZfD/63w8
+# sna0FQVbmf7jvY0ycCan2xEuaNXYlDANBgkqhkiG9w0BAQEFAASCAYBx511BFgQs
+# Kz+NC7SpkjOA86FGAb7EWg4vORU4VDEmXUlkILzK86iAmnZJoShl+W/2xTuAqcU0
+# 1Y4eOCjWyamujv9Jygh5JHYK78jK2bkH45abP+WsoyIYwo3fBsjSfGXN7wQjCjc+
+# /esvohc/dWUtzP/CJ90DAlaz/hUtdMpyFgy1rmSCKDVbcq1DkbA8vIRuksjTe91t
+# kJlEmufu887JME2/u4tJ6TUux13TT3aIpXAjUD6q65o37k6b4Ry8Vvgwl1T2yPwl
+# 6O1j0GT1D96pYyxRDdjAMRgHFeIMxnKufGmgEINgiNY+hhMf2tSLJ3TLD4CKT4Cs
+# Y3LcyEz/dxBFRp4gF/NIbaXdygAfkvf6rhLXnYFJSEB5g27UNM8GK3L2PLM06cz6
+# YUwts8+wNfCv8CkZnVSNGGbCwAerpRxLJbrx3RugHvG+x0J7dmFgyzz4tMrpspUp
+# vB0MbXNqzLtLopk+z5Tqcfo925LPXjRezkH/3v5+/5VQiYC7W/xo554=
 # SIG # End signature block

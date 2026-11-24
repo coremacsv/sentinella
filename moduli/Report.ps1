@@ -25,7 +25,7 @@ $glossario = [ordered]@{
     }
     'Programmi in avvio automatico' = @{
         Cosa = "Un programma parte da solo a ogni accensione da una cartella insolita o tramite uno script. Non e' per forza un problema, ma e' un posto classico dove si nasconde chi vuole restare anche dopo un riavvio."
-        Fai  = "Task Manager (Ctrl+Shift+Esc) > scheda Avvio: trova la voce segnalata. Se non riconosci il programma, disattivalo da li'. Se lo riconosci, alla prossima scansione rispondi 'si' quando Sentinella te lo chiede: non ti verra' piu' segnalato finche' il file resta identico."
+        Fai  = "Task Manager (Ctrl+Shift+Esc) > scheda Avvio: trova la voce segnalata. Se non riconosci il programma, disattivalo da li'. Se lo riconosci, segnalo nella lista 'Programmi da riconoscere' a fine scansione: non ti verra' piu' segnalato finche' il file resta identico."
     }
     'Nascondigli di avvio avanzati' = @{
         Cosa = "E' stata modificata una delle poche impostazioni di Windows che fanno partire un programma insieme al sistema stesso, ancora prima del desktop. Le usano quasi solo malware o software di sicurezza legittimo."
@@ -33,7 +33,7 @@ $glossario = [ordered]@{
     }
     "Attivita' pianificate" = @{
         Cosa = "C'e' un'attivita' pianificata che fa partire un programma non firmato da una cartella insolita: un altro modo per far ripartire qualcosa a ogni accensione o a orari fissi. Se Sentinella dice che fa parte di un programma installato, e' quasi sempre il suo controllo aggiornamenti."
-        Fai  = "Se riconosci il programma, alla prossima scansione Rapida rispondi 'si' quando te lo chiede. Se no: cerca 'Utilita' di pianificazione' nel menu Start, trova l'attivita' con lo stesso nome, tasto destro > Disattiva."
+        Fai  = "Se riconosci il programma, segnalo nella lista 'Programmi da riconoscere' a fine scansione. Se no: cerca 'Utilita' di pianificazione' nel menu Start, trova l'attivita' con lo stesso nome, tasto destro > Disattiva."
     }
     'Processi in esecuzione' = @{
         Cosa = "C'e' un programma in esecuzione ADESSO, non firmato digitalmente, partito da una cartella insolita: potrebbe essere attivo sul PC in questo momento."
@@ -405,8 +405,8 @@ function SalvaReport($v, [bool]$vuoleTxt, [bool]$vuoleHtml, [bool]$vuoleJson, $d
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCC8ccyK2iOL9Vlm
-# 9V9mlaxOHNQjediV6I9hdjsiKbMhzqCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCC7xpbVhET7qB23
+# AcoXFcD7CD1bIEppFY76h2a8xEkQv6CCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -432,14 +432,14 @@ function SalvaReport($v, [bool]$vuoleTxt, [bool]$vuoleHtml, [bool]$vuoleJson, $d
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAko63a49imvBto
-# T+zmD2D8lRwuoGZyZm7HH7i0Th9oDjANBgkqhkiG9w0BAQEFAASCAYBZkLr8s/kY
-# JFF0KvGg57YV2kyNReNMQs/KnIv5l6mFMb+EptxpB2kIik/TO0cDjMgrjzGUrAfE
-# msaQNKVhbQ1T35vSHNWCnPkEBPWyxo7j80/YSKxAN5n/8h+Bsk0nQHaG0Eymh3u+
-# K4LxeOKUo8kioNzfE8LhRGOZgGHxF0vWNwsBMUS+0YW8Zvb6uajJXy0DoB5TZEhq
-# RE1QgLY9bDUFXIrjUDv7L178FkfyJa9pxZnLGKpj6rA8ysb0w6a+6Te1UjT24dD/
-# 2StXP7caeWzW+wAS6f8B0nFJi/HnT0BsIwJCY5rCR/7ieVb9R/O1v9Sy4RrqpH9Q
-# /UvYULn3GsSLhHP9sYB+CW9jeqI2hr+1c7PxIfpki8fPIWSXPkq0oAbodLlVlHyh
-# YiJ4T3kQkkiQDVf+hDriXq2BppQC7Xb5MsxSxaY+xJ+PO0v8tprvQHwaFgc19DWI
-# Jr0sAaOOiS0va2QWZlI+0HCI9qCXncTvXPXkDTDa6UM+hnYispahH2o=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCB/xNyysHywTYwP
+# 5CW4OaHczWzV+a5/ZtVkg1AbhUkcdjANBgkqhkiG9w0BAQEFAASCAYA4QJaqTUdM
+# 30wZzBoZb2mw8lJMfbRp3dQmbu8X96pjBa0BOLgUmch+tayaYbW8fvYFcOmwcgc0
+# +Ag9XA6cC+uHXTP6lcRQymqKPh+0LhYIKUN+O0CLFIV0K0abyFqQRf1fdelIjIpm
+# Hez5p2e4zSEyEVyfWK8XQNQZo+/LY1lqGNNugjt44jfJIguegh1B7i7KNjAC7FKi
+# kzaE7QXkX7k5wR2I5POoZSCT9Ve9+nUtLnFXQkIgb87i+SUE3nUNBK9YG/MMGVPP
+# XYrAn1pibtnjBKzkEMh14/FFnkz99GD4OaGnubJGD2cwimlmwaH7GOzG8x9rN/oZ
+# VscOIYIOUBnYxZ4yqh7QR4Zy9Bu6iO0JZqRJ3Jup4m5NVkXsq7pjajUds248jD3J
+# oOPkuEtzzon2hWlarZ+A0cc/fbtlgkFZgMtcUCkUAKmf6cvgYX8Guel3fwyDTspL
+# 4eSmqgZ0fn7Iw5pOsFB8Mmm/JkoJDgXM/Eh6GWBguhlCJ6n/QJfMNPE=
 # SIG # End signature block

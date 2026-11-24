@@ -55,7 +55,8 @@ Ogni controllo ha cinque esiti possibili: `[ OK ]` a posto, `[ !! ]` da guardare
 
 Un file che parte da solo senza firma digitale non è automaticamente rosso:
 - se risulta parte di un programma installato (sta nella sua cartella **e** i dati interni del file citano quel programma) è giallo;
-- se Sentinella ti chiede "lo riconosci?" e rispondi sì, la risposta è legata all'**impronta SHA256** del file: se il file cambia anche di un byte, l'allarme torna.
+- durante la scansione Sentinella non fa domande: raccoglie tutti i file e programmi senza firma e alla fine mostra **una sola lista numerata** ("Programmi da riconoscere"), con in cima quelli che non appartengono a nessun programma installato. Una risposta per tutti: `T` tutti, `1,3 5-7` solo alcuni, `N` nessuno, `INVIO` decido la prossima volta. Quello che riconosci esce subito dal verdetto;
+- la risposta è legata all'**impronta SHA256** del file: se il file cambia anche di un byte, la domanda torna.
 
 ## Uso da riga di comando
 

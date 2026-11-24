@@ -178,6 +178,43 @@ Describe 'ConvertiPercorsoDispositivo' {
     }
 }
 
+Describe 'InterpretaRisposta (lista unica di fine scansione)' {
+    It 'INVIO = decido dopo' { (InterpretaRisposta '' 5).Azione | Should Be 'dopo' }
+    It 'T = tutti' {
+        $r = InterpretaRisposta 't' 3
+        $r.Azione | Should Be 'tutti'
+        ($r.Numeri -join ',') | Should Be '1,2,3'
+    }
+    It 'N = nessuno' { (InterpretaRisposta 'N' 3).Azione | Should Be 'nessuno' }
+    It 'numeri, intervalli e doppioni' {
+        $r = InterpretaRisposta '1, 3 5-7;3' 20
+        $r.Azione | Should Be 'scelti'
+        ($r.Numeri -join ',') | Should Be '1,3,5,6,7'
+    }
+    It 'un numero fuori elenco e'' rifiutato' { InterpretaRisposta '2,9' 5 | Should Be $null }
+    It 'lo zero e'' rifiutato' { InterpretaRisposta '0' 5 | Should Be $null }
+    It 'un intervallo al contrario e'' rifiutato' { InterpretaRisposta '7-3' 9 | Should Be $null }
+    It 'il testo a caso e'' rifiutato' { InterpretaRisposta 'boh' 5 | Should Be $null }
+}
+
+Describe 'RitiraReperto (un file riconosciuto esce dal verdetto)' {
+    It 'il controllo torna OK e il reperto resta nel dettaglio come nota' {
+        $script:silenzioso = $true
+        EseguiControllo 'prova ritiro' { Allarme 'file sconosciuto X'; Nota 'altro' }
+        $script:esiti['prova ritiro'] | Should Be 2
+        $script:allarmi.Contains('file sconosciuto X') | Should Be $true
+        RitiraReperto 'prova ritiro' 'file sconosciuto X' 'riconosciuto da te'
+        $script:esiti['prova ritiro'] | Should Be 0
+        $script:allarmi.Contains('file sconosciuto X') | Should Be $false
+        @($script:reperti | Where-Object { $_['controllo'] -eq 'prova ritiro' -and $_['testo'] -like 'file sconosciuto X*riconosciuto da te*' }).Count | Should Be 1
+    }
+    It 'se resta un altro reperto, il controllo resta al suo livello' {
+        EseguiControllo 'prova ritiro 2' { Allarme 'file A'; Attenzione 'file B' }
+        RitiraReperto 'prova ritiro 2' 'file A' 'riconosciuto da te'
+        $script:esiti['prova ritiro 2'] | Should Be 1
+    }
+}
+
 Describe 'Motore: regola d''oro (mai OK senza esito)' {
     It 'un controllo che non dice niente risulta NON VERIFICATO' {
         $script:silenzioso = $true

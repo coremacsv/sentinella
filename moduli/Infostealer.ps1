@@ -110,13 +110,24 @@ function C_FileScaricati {
             $da = ''
             if ($origine) { $da = " - scaricato da $origine" }
             $quando = $f.LastWriteTime.ToString('dd/MM/yyyy HH:mm')
+            $q = "`"$($f.FullName)`""
             if ($ext -in $eseguibili) {
                 if (FirmaValida $f.FullName) { Nota "   $quando  $($f.Name)$da - firmato da $(NomeFirmatario $f.FullName)" }
-                elseif ($origine) { $segnalati++; Attenzione "Eseguibile NON firmato scaricato di recente: $($f.FullName)$da ($quando)  [SHA256 $(Impronta $f.FullName)]" }
-                else { Nota "   $quando  $($f.Name) - non firmato, creato su questo PC (non scaricato)" }
+                elseif (-not $origine) { Nota "   $quando  $($f.Name) - non firmato, creato su questo PC (non scaricato)" }
+                elseif (-not (GiaRiconosciuto $q "$quando  $($f.Name)$da")) {
+                    $segnalati++
+                    $t = "Eseguibile NON firmato scaricato di recente: $($f.FullName)$da ($quando)  [SHA256 $(Impronta $q)]"
+                    Attenzione $t
+                    if ((StatoConferma $q) -ne 'no') { ProponiFile $q "eseguibile$da il $quando" 1 $t }
+                }
             } elseif ($ext -in $script_) {
-                if ($origine) { $segnalati++; Attenzione "Script o collegamento scaricato da internet: $($f.FullName)$da ($quando)" }
-                else { Nota "   $quando  $($f.Name) - script creato su questo PC" }
+                if (-not $origine) { Nota "   $quando  $($f.Name) - script creato su questo PC" }
+                elseif (-not (GiaRiconosciuto $q "$quando  $($f.Name)$da")) {
+                    $segnalati++
+                    $t = "Script o collegamento scaricato da internet: $($f.FullName)$da ($quando)"
+                    Attenzione $t
+                    if ((StatoConferma $q) -ne 'no') { ProponiFile $q "script$da il $quando" 1 $t }
+                }
             } else {
                 Nota "   $quando  $($f.Name)$da"
             }
@@ -180,8 +191,12 @@ function C_EseguitiDiRecente {
                 $segnalati++
                 Attenzione "Avviato il $q da $zona e poi SPARITO dal disco: $percorso"
             } elseif (-not (FirmaValida $percorso)) {
+                $pq = "`"$percorso`""
+                if (GiaRiconosciuto $pq "$q  $percorso") { continue }
                 $segnalati++
-                Attenzione "Avviato il $q da $zona, NON firmato: $percorso  [SHA256 $(Impronta $percorso)]"
+                $t = "Avviato il $q da $zona, NON firmato: $percorso  [SHA256 $(Impronta $pq)]"
+                Attenzione $t
+                if ((StatoConferma $pq) -ne 'no') { ProponiFile $pq "avviato il $q da $zona" 1 $t }
             } else {
                 Nota "   $q  $percorso - firmato da $(NomeFirmatario $percorso)"
             }
@@ -226,11 +241,12 @@ function C_Discord {
             "Se non hai installato mod: chiudi Discord, disinstallalo, cancella le cartelle %LOCALAPPDATA%\Discord e %APPDATA%\discord, reinstallalo dal sito ufficiale. Poi, da un altro dispositivo, cambia la password di Discord (questo scollega tutte le sessioni) e attiva la verifica in due passaggi."
     }
 }
+
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCC3M4D9tF6lrj3E
-# mDXwttmLm+TETqrLarM7NFmjLn9pY6CCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAD2695LhkmsZd+
+# 7VwlaZR+TxUNRXZ+oTSM6dNeyV3KBaCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -256,14 +272,14 @@ function C_Discord {
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAXcd+qc92fFHvQ
-# lNZjMNtoRJM8DjUYvCpIDu/dSfvlwDANBgkqhkiG9w0BAQEFAASCAYCnuA4QPg/H
-# d4YRoDtJT+TfrVpT0U+L7ctAQDTlDE53IEd64RJ6NUt0JB6rVIqfJykDiqlbJGVE
-# QNWnVgEa72eVldugAsyGA+4SA0XYFjTAaK7qesjut/lyfaitrAigkxocIiFuRXbG
-# JG559LdkuslGmaUS0YJ0psW0M3q0pW8lOaqr7jBBqisaTtMwlHajUh5GUP130GcD
-# l0q+5GP3+yai22HA/CVZOSI/QY4+r/MbDm6cS7r/6FvsksqCtWLGOznldN8U6c8J
-# GLX72iyrsmVt3vxIq21ORuwmaPyoyMC8gFWX5CHGGl07x8kP6HpnMCAFU+h8x4Wl
-# oPkiUFLRK0/AWBU6TxmgpIijtNgl4+vQz7LmXfea1W+OVIe8/Dxez46EamYLCXGu
-# sK7OJ53JyGh/h53f8IcjXYz+zUfqn1tfcObDam3znPRQ/ZE07LeyDUa9hbGbb0Id
-# FjqiTt8sBy6D6oyX5T5ZjrRGlM5x5WK/Zi7b4alagnPimx1g8zaErak=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCDPhktRM+TxW3hF
+# 0A9DL7uhaqCi0Gyj8ifQw8grQNLbxzANBgkqhkiG9w0BAQEFAASCAYAR8d3Sl4pW
+# G5WrYeU9lIAAdo1+0cCAj0jaKQ6p1SyXtweQAO5h5DfOa25Ni+4kt+2AJKnkmnyu
+# xcDfYa+8NRurx0gEPvksIbJPrSm0eK8CM2icu1toEf6gJJqGXdaxF48hHmKdwdGd
+# fA92WcaenHGoOG04kHUKTNMnR5n/4dYnNCNsJn+LXiYZ/cOCtfoUuixT+9oj/a1s
+# 9wmISMlHcs/GE/E1gwTo8jC2bA9u3KQbnbei6iUzxteFpWjh2HNMpisGtiiZlzkR
+# fyFNYb6pUnxR1gMMR7MS21TiByafyp3fQWG39xzLSlV+Ku0Fn4yvm6Neyl3u2LzX
+# Otby7xQJASLuaiLXFrDymVC/nDMPjDyuXhFaLPsXzwdn/CT/+qAVHnps6ZkneaTx
+# 2ZE8HpDQqtiVejPCTKtR7fI2Qb7UUBUXWu3pJ4roH3TinTExSLC49iaE27no0lyL
+# geVPGaz1D4Y9mTcrlEEzCuFT547d1JvEk4lH6/t+Sms5CIkcZJedXl4=
 # SIG # End signature block

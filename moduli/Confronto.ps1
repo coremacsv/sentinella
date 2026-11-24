@@ -149,7 +149,18 @@ function C_Confronto {
                     $tranquillo = MotivoTranquillo $chiave $x
                     if ($script:gravi3 -contains $chiave) { Allarme $testo }
                     elseif ($tranquillo) { Nota "   $testo  [$tranquillo]" }
-                    else { Attenzione $testo }
+                    else {
+                        Attenzione $testo
+                        # Se la novita' e' un file non firmato, anche lei va nella lista
+                        # finale: riconoscerlo li' la toglie da qui.
+                        if ($chiave -in @('avvio', 'attivita', 'servizi')) {
+                            $comando = ($x -split ' (?:->|=) ', 2)[-1]
+                            $exe = EstraiEseguibile $comando
+                            if ($exe -and (Test-Path -LiteralPath $exe -PathType Leaf) -and -not (FirmaValida $comando) -and (StatoConferma $comando) -ne 'no') {
+                                ProponiFile $comando "comparso dall'ultima scansione in $($script:etichetteImpronta[$chiave])" 1 $testo
+                            }
+                        }
+                    }
                 }
                 foreach ($x in $spariti) {
                     $cambiamenti++
@@ -185,8 +196,8 @@ function C_Confronto {
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCC4D++8hwRmFTi4
-# jNkwI8ohBbHlaQjPSvxRdn0ppu9YGaCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCD9d0RZLi15xNM4
+# BUnawmmnr3VSAZ3rclnqO+wvWG5oeaCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -212,14 +223,14 @@ function C_Confronto {
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCDD31o1Y3tPwDUX
-# n7wczME3J9w7b8OhV7CUxrIeIrrXQzANBgkqhkiG9w0BAQEFAASCAYBM5OJwytsj
-# +xGhXqJM0hiG32LLL0JHlJzaKYpAedbLwjza7QG69sj5vv8co5sBqFrQimu1l26z
-# LXfawQbwf7ter9kbDGGY3Og+mRv5DWs3LNZ/tp3zQ+GB9FDTo/jcZFNR8AdsfJ6E
-# XneeCSHP3xZu/SsEHScnBZlKUWmvHcMVNXpBed3oVL+gdU0UY/bEeymUkv5QuGEJ
-# IBg/FjBNsdWdkIEx/+BUG/g/mJ6ux5wgcEWO9N/w0rvkB6QVxGHN5y18xV5Z6Hih
-# YmUMx2a0aGRrPD88ge7w4iTCmnCv5Z1MoE3xHRhCE4nEV54+2mA0DDKAZPeYijN4
-# LHId3L0c5Imz//vxDj22noqcVd3g+YHmqRLJEWn2dtlIZ3z3JiZESPNaOzaHAaXE
-# 5OIUlGxBEOiZ/HBcBWWCNBTGOXmcj9ZotSzBP0uZwqkwx9jFc0mn5A2h1IWxI/4+
-# C2b9IzMyANi4fPU10nz1VLw91A0FvzMg/s12PZsAfD8cl3BqFuS89/0=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCA8MMxtfmndNsOT
+# I0Y99HgfavuyimQnuj1bhYLo/Klp3TANBgkqhkiG9w0BAQEFAASCAYAkY77gxLZT
+# OmcE7RTN1DIRyj1Z2IoQlWBS2Crfyf35Tk//YwGLlDRQlcdKDPg9KsTAvh9sckwW
+# KQ3S4mV0yJ5CGpKRftgxiH5/NXDg+jAY6hXKtoRF/S74EXlp1kmAkpbFE5FRisbR
+# zbTglIBJt9U0/aq/KH13ZBYiZ1IXl97wiNuCJY3+YJIPVV/NQQ4y2CmxT/Qt+aK+
+# Kjy4f6jQ0x33iUllt02lCbtaENi6HI3QFG303UjA1afnNHsTrMmJH7WiDuE0jMNE
+# Sp9RQBUM2xU6MKAGx1zhgY4vpaKm1DfEBVMKkGC4ECiNrAfStkiHd97z3AIut/gO
+# +hkEuSc7VIL+3ewh6g7UmH/pk3ZbH3w6BReSew9WTBA3cQ+qL0C2KUeDsP+uTgdR
+# fjsf0HVTg/YuiuYMCSPX/uF7/Z73pHxiA6GzEDUtXgEPiEZtnif8/s70Timi0lnZ
+# ILbClmH911eRWOdk7QVjniQDWJxGztVUWQxtXLRHKyKTJ+9+yBn0q6I=
 # SIG # End signature block

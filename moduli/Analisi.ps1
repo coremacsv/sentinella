@@ -130,6 +130,33 @@ function ProgrammaProprietario([string]$exe, $installati, $infoFile) {
     return $null
 }
 
+# Interpreta la risposta alla lista finale "programmi da riconoscere".
+#   ''         -> 'dopo'    (non decido ora: me lo richiedera')
+#   T          -> 'tutti'
+#   N          -> 'nessuno' (non li riconosco: restano segnalati, non richiesti)
+#   1,3 5-7    -> 'scelti' con i numeri indicati
+# Restituisce $null se la risposta non e' valida (numero fuori elenco, testo strano).
+function InterpretaRisposta([string]$testo, [int]$quanti) {
+    $t = ([string]$testo).Trim()
+    if ($t -eq '') { return @{ Azione = 'dopo'; Numeri = @() } }
+    if ($t -match '^(?i)(t|tutti)$') { return @{ Azione = 'tutti'; Numeri = @(1..$quanti) } }
+    if ($t -match '^(?i)(n|nessuno)$') { return @{ Azione = 'nessuno'; Numeri = @() } }
+    $numeri = @()
+    foreach ($pezzo in ($t -split '[,;\s]+' | Where-Object { $_ })) {
+        if ($pezzo -match '^(\d+)-(\d+)$') {
+            $a = [int]$Matches[1]; $b = [int]$Matches[2]
+            if ($a -gt $b) { return $null }
+            $numeri += $a..$b
+        } elseif ($pezzo -match '^\d+$') { $numeri += [int]$pezzo }
+        else { return $null }
+    }
+    $numeri = @($numeri | Sort-Object -Unique)
+    # .Count e non il risultato del filtro: il numero 0 trovato fuori elenco
+    # verrebbe letto da PowerShell come "falso" e passerebbe il controllo.
+    if ($numeri.Count -eq 0 -or @($numeri | Where-Object { $_ -lt 1 -or $_ -gt $quanti }).Count -gt 0) { return $null }
+    return @{ Azione = 'scelti'; Numeri = $numeri }
+}
+
 # Un aggiornamento cambia solo il numero di versione nel percorso: non e' una voce nuova.
 function SenzaVersione($voce) { return ([string]$voce -replace '(?<=\\)\d+(\.\d+)+(?=\\)', '*') }
 
@@ -214,8 +241,8 @@ function ConvertiPercorsoDispositivo([string]$p, [hashtable]$mappa) {
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDuowDimx8CbwUL
-# ko5dINswDsnsXBOeR5QHMnN4Sp/DqKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCqYhI0Gdk2UYEk
+# saZQ5w94r65SYldnEaOtu0x0udzD5aCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -241,14 +268,14 @@ function ConvertiPercorsoDispositivo([string]$p, [hashtable]$mappa) {
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCBQIwvZkYp1CP22
-# kZedAKXG82fb3+U+qBj4EiYZ7iu8YzANBgkqhkiG9w0BAQEFAASCAYBrKX2wcW4t
-# BDPLhrXUO8926fMwS3i3OBUaVhBqfZc3zXSqNn4PbgWrjfgYJAiVIfmcXbhm9mgm
-# pglSDLwId4V8qSLqe9H/84DFSMhv0QWw6fVc7N29Jah5hrhMFo3fIrFXctg2Lw9H
-# +tib8fsty5miMgvAEsM1+T2aT/ILAjo25GEN9PWJYAtHTjaJGVXZXKsH2BXF6ekV
-# b0SPIqnyDHV+ig2VoRrJQaaY8RyBl7kBt3MRtsN+sXUciHS3H20SBOambDsfpu4G
-# YWpexl/zEXGJDN4x6ffTL+XzO+1jCR6obA+8eSAlDT1+zyK216grGqwhcQmRbtVP
-# 4W1y2L7453tw4pq/wrKlsLanOtHKjSd11Mp+p0xn0lohFduzLohPOL49t6dLeR2y
-# e0RpsU01Ww214kLYttnTioEQBw26EnZEldPo2DocIyBelkLPpfma3V69I2GAsEva
-# YFwzi92WjOAzUwiPAqD9rVEPSc7cKuCJLVJtpP7rWJf0ZfNHqDdQGOo=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAAqOeXRkAzSzOU
+# W3AoZq0DtvCgA5lTXOliIU6ZX1H7GzANBgkqhkiG9w0BAQEFAASCAYClBDGl9vHJ
+# wwssb1VLeFHQQByAiCASocuuJ4Lzj3wrbqQemYl97njALHFxgIzrPVKZkHYCeYuB
+# pTmUmh8nY54LGWBxi38ShKLqNO/tk4xLtLYBEl3wV9VJdG5TmajoPaaLTsrG9uwF
+# au6ryRlz3GPTiTiqdsUpItZG+bWcrwgZPrjnb4IfZp4EkYvfzufZKPeKDAC89tyf
+# XkeFcWk2GiOHdwlaH0qLkvd1PeOyMuVhvtfsoMHUbRB8UDiWXTQb5BJvFoAFsK6T
+# Iw7Ad7TvrMoun88QtKwevTCAVkhK6xiPgdYqk+KPJROIoHnzV0ltRYq60WC5l57V
+# gAkFKeJw6g5t/KiFI+P2l8wcyksnlrLhbka46XCHuySqI6RIt9S4GUZiltoMT1by
+# mhGsMD4Y2paFDDI4k6L0LkhqUHb2YBLR70WQcPLWEwCTJuW265RFSMKOIQHJBAbg
+# 2Pl8A3s1oTEh0TAqb5d2+HYbmmhEpbY92cT24aVtaZTOdvlQQyOohtk=
 # SIG # End signature block

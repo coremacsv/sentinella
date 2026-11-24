@@ -235,24 +235,12 @@ function C_ProgrammiRecenti {
             $senzaFirma++
             Attenzione ("{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente, gia' segnalato come non riconosciuto il {2}" -f $x.Data, $x.Nome, $script:conferme[$x.Nome].quando); continue
         }
-        if ($script:silenzioso) {
-            $senzaFirma++
-            Attenzione ("{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente" -f $x.Data, $x.Nome); continue
-        }
-        Scrivi "" Gray
-        Scrivi "     $($x.Nome)  (installato il $($x.Data.ToString('dd/MM/yyyy')), NON firmato)" Yellow
-        $si = ChiediSiNo "       L'hai installato tu? [S] si  [N] no/non ricordo (INVIO = no)"
-        $quandoConf = (Get-Date).ToString('dd/MM/yyyy')
-        if ($si) {
-            $script:conferme[$x.Nome] = @{ risposta = 'si'; quando = $quandoConf }
-            SalvaConferme
-            Nota ("   {0:dd/MM/yyyy}  {1}  -  confermato da te ora: non verra' piu' segnalato" -f $x.Data, $x.Nome)
-        } else {
-            $script:conferme[$x.Nome] = @{ risposta = 'no'; quando = $quandoConf }
-            SalvaConferme
-            $senzaFirma++
-            Attenzione ("{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente, non riconosciuto da te" -f $x.Data, $x.Nome)
-        }
+        # Nessuna domanda qui: finisce nella lista unica di fine scansione.
+        $senzaFirma++
+        $t = "{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente" -f $x.Data, $x.Nome
+        Attenzione $t
+        $ed = ''; if ($x.Editore) { $ed = ", editore dichiarato: $($x.Editore)" }
+        ProponiConferma 'programma' "programma:$($x.Nome)" $x.Nome ("programma installato il {0:dd/MM/yyyy}{1}" -f $x.Data, $ed) 1 $t
     }
     if ($rec.Count -gt 25) { Nota "Altri $($rec.Count - 25) programmi recenti non controllati: l'elenco mostra solo i 25 piu' nuovi." }
     if ($senzaFirma -eq 0) { Ok "$($rec.Count) programmi installati di recente, nessuno sconosciuto e senza firma" }
@@ -291,8 +279,8 @@ function C_Integrita {
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB4WmUSNxFYBWYv
-# ny4HmdGNdWToykhUjJ+cr88jQXRgBqCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAFfHrYy/wSRw+V
+# 6I5o9VvVZ6WCSSEtcPZmjT436AauLKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -318,14 +306,14 @@ function C_Integrita {
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAMsOThYbLv9bFB
-# mRzj/KG3jY/7cyw5+/GYHnWxINC2sDANBgkqhkiG9w0BAQEFAASCAYCBScjC7faG
-# wGvV8hvH4Vf+Y7Rls9296SP3QFeKsz6evhVtMdRiDyI8HS14HLOlPibLyF5UsFF2
-# r62EAyXtC31339zzz44XGJELnFJWJgUIdokaqOkGwWBU4HVfs3rqvqmE3n0oZ+En
-# OIdwScwwPgLY6PZTIyTqxlOpIQACx7tjm5IIpCt3IgHI7EI0NSKeXmm59uyA5Uyb
-# wGcV6TQ0dW8lxE8Xae/5prLFI4vspnzMryChNP1iEMR6zPK+yqOlNgGfhuCUoezn
-# gZs6jG+UAornPIQ0uM6gl5CNgN1TO8lhkr0Ei4YS502lNzoBJXrBnHK4AAzP07eb
-# jXanyPNauR/bLqhgJmciQ+s5P4B0EPn9NHVAaudh9LtgS3Hq6jEEwI7OthvRKlWl
-# dh7o8ts0kqqtGGEK97ql+nNUzu7/z4bOVjAec4wCzm0x1ykbLmEF3VLWK7gc5Kik
-# lSo+BSJK/9c4xBjhcs+MMQ1UGmzdrKx/4ZOXNP7IurZKDH9MePSZEgo=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAh3OM6MoE4j5If
+# 89sAUKnmGxO+XnV/DhqqJBy49h4s4TANBgkqhkiG9w0BAQEFAASCAYBFj1kRJ7PN
+# GUkUscpCLVNwTjogGc6Zj4/rCkCzNC3cQFNJqy1OTl27HuKc31RMiJaIrsg1eSSN
+# SpqNWkp7299dT/2r2zJ7aRgGqYe4S5oisLVCGaiV9eJUoU8oH9dDrzKuzP7Y4f+S
+# suTG9cLaiA6fjCHcz6L/hMJD8CIExvRvMiPD5ANJjtqihIbaT0liV9tpzATxWKDq
+# 2jMpaX6sGuHhsq1kqb0nCDPrX91n8R9jttOHaKwqt1GGdJX+xQ0v89VdwIt2xb0D
+# ntsumyTfcVrsTvJ2JZPN2K6qmk5Wkm2dcGIGz0+C4zz7BXDflHLZKCSQbnODtnLq
+# RBOAOTpFjpl9Na+DsgZJ57gpCsJ/Vp3rmLmpz5+Fmg8dg2i/dbidHMeUELQ1vd/Y
+# JVjyqKXggBEpgewyZHOpmi+V+wT4DIMYpd/qDDu+4rt3D3psrEoWOJP/vaIjnplW
+# LCN6Jdkp5zKvSUUxzLbkgIBNAz6pEzVDA1/jMHYfXuaIvtljdupJGlA=
 # SIG # End signature block

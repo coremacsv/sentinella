@@ -1,7 +1,7 @@
 ﻿# =====================================================================
 #
 #   SENTINELLA  -  sicurezza e salute del tuo PC
-#   Versione 3.0  -  by lozy
+#   Versione 3.1  -  by lozy
 #
 #   Uno strumento unico che risponde a due domande:
 #     "Il mio PC e' infetto?"  e  "Il mio PC sta bene?"
@@ -37,7 +37,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference    = 'SilentlyContinue'
-$VERSIONE = '3.0'
+$VERSIONE = '3.1'
 $silenzioso = [bool]$Silenzioso
 if ($silenzioso -and -not $Modo) { $Modo = 'Lampo' }
 $cartellaSentinella = $PSScriptRoot
@@ -262,7 +262,10 @@ foreach ($c in $daEseguire) {
 }
 
 # =============================================================== REPORT
+# La durata e' quella della scansione: il tempo che passi a leggere la lista non conta.
 $durata = [math]::Round(((Get-Date) - $inizio).TotalMinutes, 1)
+# Una sola domanda per tutti i file non firmati trovati (vedi ChiediConferme).
+ChiediConferme
 Sezione "REPORT FINALE  -  scansione $tipo"
 $v = Verdetto
 $dati = DatiJson $v
@@ -304,8 +307,8 @@ exit $v.Codice
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCb76UuMbxV7VeQ
-# uYuGPKe3Fqfxp+5YKQC4KR6jG6nsg6CCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAxdVNtmX3joc8j
+# gn4ga+/w6FwFARtEADgnpfNSgwI5kKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -331,14 +334,14 @@ exit $v.Codice
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCBjFZ8qoqIdnD3h
-# xVdDYyY2Zs04230WwOaa6y/YipnIbTANBgkqhkiG9w0BAQEFAASCAYBzL8ZfO6sx
-# fGGDHziEy+L4uVCNYQz9w5zAMfBP5CqF6Svz+uH0qj4oIiLgQkIgLb7yjDythjvz
-# 7fOYON9S4rYi5vAavC1r1tbIy50BtxmrN9BN9B8jY2TSnVUVvfgNam74T6DxAECZ
-# wGeAX2ggoIMHJrTvFtfqcJLbXlYM+k/D8EZEkaQ+DvTa3pNf6Ygz2X0k7Ly4Xm1+
-# MUv5Ldy9ch9yMyo+6pHgkX48Wc24mGpDAzQFGQkn+Ca9O+5OcM0f0Vn5/o88PZ8F
-# 6A5UEt4L719aJcR6pSk4qggpfGffHB1oI2zMhC6NGvBzCA6G+/tBb+P9I/CNFbfM
-# XfTEuAr0rj+J0hMQUQuLp15eH6CAhRML9uzT12IukJeDlaaGpm2yITqhWWTuOozg
-# 6WWRgAwHyFGq99+/QWHgBv76KUJJinn6Smk5tX9bH5Y6ivRoJ4RnBZ4WyMqYQOKT
-# hhLIvGn03OgbulG/YyKwKAAERvzk/ddriRVs59MZtUJB7+kTg401iko=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCDcxYq5CTzfjawE
+# s7wcGq99YNhRnS7sdVtTElPKFrNaLzANBgkqhkiG9w0BAQEFAASCAYCXBFoTy/ry
+# wgNsKpMk/bIch6xicU7mj6CDUkfL6OFx3ANyTNmNP5q02SuSmJ+Q37l+BwRMxf6a
+# ZktdMOHByR+ZijDvYtJA7U51eunF2913rlzN5WdyS9aCsnY1IS70VRpTS6wRPzAC
+# 0nVZUwsloiq6CUADFNTFsiUTNUGBMNf/yvTmBK9v2DBr7maoGXyVYt+IqPBj1kCD
+# 0OPP3HobOAEMz3nIyaM4f7k+sM32PO0btZmpkj/DsjUreGkCZYexcoOVg6SkJhJD
+# QBV8VOJ907xMwRkM9TxLNR0ciklrq5Y96iDiK23Zon+hTs+w0Qr4/LbIBpuwHGrR
+# sXDAsT1uNwA2kVw3xy6EzsVN4hx64V1GnHyfoHQAOXs35MAzStdk+QeyCzvzgw88
+# tXLZ1/F48PFt10rNdZdf63np5jBQmRLdHczUcA3voyVcbmgqYp7c6NxQ6PL6IdOY
+# X17AGMCtmhVF5YaKdj7E2y6hMsz89JYIFlnHiU0PZ3MKQJ7MeGT7lpU=
 # SIG # End signature block
