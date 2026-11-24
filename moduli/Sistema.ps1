@@ -224,8 +224,17 @@ function GiaRiconosciuto([string]$percorso, [string]$etichetta) {
 #   pezzo riconosciuto di un programma installato  -> giallo
 #   nessuna delle due                              -> rosso
 function ValutaNonFirmato([string]$percorso, [string]$descrizione) {
-    if (GiaRiconosciuto $percorso $descrizione) { return }
     $hash = Impronta $percorso
+    $firma = ClassificaFirma ([string](FirmaDi $percorso).Status)
+    # Un file firmato e poi modificato non si "riconosce": e' sempre grave,
+    # anche se in passato avevi confermato una sua versione precedente.
+    if ($firma -eq 'manomessa') {
+        Allarme "$descrizione - file MODIFICATO dopo la firma dell'editore  [SHA256 $hash]"
+        return
+    }
+    if (GiaRiconosciuto $percorso $descrizione) { return }
+    $nonFirmato = 'NON firmato'
+    if ($firma -eq 'non-verificabile') { $nonFirmato = 'con firma NON verificabile' }
     $proprietario = ProprietarioDi $percorso
     $noto = $null
     if ($proprietario) { $noto = ComponenteNoto $proprietario }
@@ -234,14 +243,14 @@ function ValutaNonFirmato([string]$percorso, [string]$descrizione) {
     $coda = ''
     if ($giaNo) { $coda = ' - segnato da te come NON riconosciuto' }
     if ($proprietario) {
-        $testo = "$descrizione - NON firmato, ma risulta parte del programma installato '$proprietario'"
+        $testo = "$descrizione - $nonFirmato, ma risulta parte del programma installato '$proprietario'"
         if ($noto) { $testo += " ($noto)" }
         $testo += "$coda  [SHA256 $hash]"
         Attenzione $testo
         if (-not $giaNo) { ProponiFile $percorso "probabilmente parte di '$proprietario'" 1 $testo }
         return
     }
-    $testo = "$descrizione - file NON firmato, non riconducibile a nessun programma installato$coda  [SHA256 $hash]"
+    $testo = "$descrizione - file $nonFirmato, non riconducibile a nessun programma installato$coda  [SHA256 $hash]"
     Allarme $testo
     if (-not $giaNo) { ProponiFile $percorso "non appartiene a nessun programma installato" 2 $testo }
 }
@@ -329,8 +338,8 @@ public static extern uint QueryDosDevice(string lpDeviceName, System.Text.String
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBSXXR+CFtnhzlx
-# KAc3Zv23RzotRrUvCzcBUg3MmG7zGKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAAxvI6z9NAr+tl
+# LlujACQepAWuyXCzXYqcIvmHiVP9LKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -356,14 +365,14 @@ public static extern uint QueryDosDevice(string lpDeviceName, System.Text.String
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAns37mA8G8od5D
-# 69XUu30zfBBwMzvRk28Eo7yuTdDwqDANBgkqhkiG9w0BAQEFAASCAYBM2H0bRT0t
-# BsHULCni9Ht652oECUg4GBoT1vhnHXnBjQeG+5Fnw9NIrH+ihH4ZxIDTOJWAGUvq
-# SuJtfyFnFVovCLkk5GIdMZ/7Y6vNlQwj2lrGVDTRpfSLNA5YtE84bccPz6iO8LKf
-# g5JpCD2mhHq1B0SX8eRGMKe39lg+OSvxF3h4EE3mFTdMeKToSRTgxr5Wg6HFsXAq
-# riucYmfQDOLKGENrnYbVY5X/CO+M+bGmRjV25GAtcDYDqqVsHZXk3Ss8ef3H6qEX
-# 3suvKi8gxzGjpQvKkQ+EBlocvwOtJ4LZP8MHzlLESBHMLAY//VaiDgYziPnrr0nw
-# lCCyxsEaXLlvAOedpIxbxjtQTHb4d5E6Tg4tSdvAVm+sQS9tW1GAokHNO5ycM3z0
-# F1KnrEgs3G1YYq2N4ectSM5hnnvNIp7nDd8oL7mikKjA31gG87KhbDZte7ByBfU8
-# qOo6oupaFBPVrRh+6etjBRJO2oY3ctZSL31+fbzPEEiMOONVEse32Fo=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCBJ+3bSUuGHdd4p
+# DCcHkhKqtd826hQ16uv00ofO3QlI/jANBgkqhkiG9w0BAQEFAASCAYBEdiKRUU1A
+# 3u+oN/K6r/AU8tDFfgVsgvMun5WU5aQsOinBVearx5pkAPlYZ31KQGjrdoyXfmq7
+# 43lvrcpON5BFf2/NiemTzsaFjPiXl/lm3Zfg4RS/AWkunOTCTfJYsoxa2VIUZ+L0
+# 8A3o/utKOnJcrWL+SqqCdO0Z4TLONDQIWrX0kBUY6p4bLE9XvkZlYOA+Eszk82mA
+# Qd87ttMwQ6AADexvz4VnsKqmWumoQV1Pw9bEfxIxZ5+BF0BcKnrrhxphOmZwhexV
+# Z5mLr5d0/nRAIX2pE4x60aJ7PZUexIX5I+dkjej7NiXHdEtrz09ihSg33UYADQP3
+# K4andyww9+fecZ1FJyAzmRYL6b6OkuL9gEz5IE4m/Gtupj/SzUDpz760+dQzFZCG
+# egwunlf9e3V3LLWKcry2vAn7kjJ77x1ebH9TG21uD2sxLuc46ZBD7qST2M4PGaCY
+# MUNSVnyOAFn91LiOfCkvZ10M9sD0Uc2i1i9H280OLTHTYZgZ1xWlEbc=
 # SIG # End signature block

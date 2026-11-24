@@ -1,7 +1,7 @@
 ﻿# =====================================================================
 #
 #   SENTINELLA  -  sicurezza e salute del tuo PC
-#   Versione 3.1  -  by lozy
+#   Versione 3.2  -  by lozy
 #
 #   Uno strumento unico che risponde a due domande:
 #     "Il mio PC e' infetto?"  e  "Il mio PC sta bene?"
@@ -37,7 +37,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference    = 'SilentlyContinue'
-$VERSIONE = '3.1'
+$VERSIONE = '3.2'
 $silenzioso = [bool]$Silenzioso
 if ($silenzioso -and -not $Modo) { $Modo = 'Lampo' }
 $cartellaSentinella = $PSScriptRoot
@@ -307,8 +307,8 @@ exit $v.Codice
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAxdVNtmX3joc8j
-# gn4ga+/w6FwFARtEADgnpfNSgwI5kKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCqWki7AxvXuG7v
+# SiKDrs87CH6uIeiKVXAGjadPg4Hob6CCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -334,14 +334,14 @@ exit $v.Codice
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCDcxYq5CTzfjawE
-# s7wcGq99YNhRnS7sdVtTElPKFrNaLzANBgkqhkiG9w0BAQEFAASCAYCXBFoTy/ry
-# wgNsKpMk/bIch6xicU7mj6CDUkfL6OFx3ANyTNmNP5q02SuSmJ+Q37l+BwRMxf6a
-# ZktdMOHByR+ZijDvYtJA7U51eunF2913rlzN5WdyS9aCsnY1IS70VRpTS6wRPzAC
-# 0nVZUwsloiq6CUADFNTFsiUTNUGBMNf/yvTmBK9v2DBr7maoGXyVYt+IqPBj1kCD
-# 0OPP3HobOAEMz3nIyaM4f7k+sM32PO0btZmpkj/DsjUreGkCZYexcoOVg6SkJhJD
-# QBV8VOJ907xMwRkM9TxLNR0ciklrq5Y96iDiK23Zon+hTs+w0Qr4/LbIBpuwHGrR
-# sXDAsT1uNwA2kVw3xy6EzsVN4hx64V1GnHyfoHQAOXs35MAzStdk+QeyCzvzgw88
-# tXLZ1/F48PFt10rNdZdf63np5jBQmRLdHczUcA3voyVcbmgqYp7c6NxQ6PL6IdOY
-# X17AGMCtmhVF5YaKdj7E2y6hMsz89JYIFlnHiU0PZ3MKQJ7MeGT7lpU=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCBjdkIRT7g1vTrk
+# /bHDya3eXFepG4/d/3K/3U4m4S0IeDANBgkqhkiG9w0BAQEFAASCAYBp00RGxSkh
+# fDuUoF2NZz+rJZ06RULLdJ9Q5ltz+aVWN/IQqMWWIrWXZ0UR4OnlqCbVWS9zrI1/
+# VJ8Lc6VMXmwBEUChlnO2nsep0PUgd+x9QQxdW3Q+7NlNchItIKkdX2O5+3ydYqU6
+# wIhtM+paGqqedxp90PHXWFc2Md2MNDQ1wGpEX1stUqWKnF/ZdC6biBn5UwIA8IMW
+# x1kJbQhKeRCj0SOa1ldTVd05OKHhHs7e4zZ1N24aBK5jtV6tc1UQdqZ1GLb7vLmU
+# pG2ZWsfxc2hdj195fYYBznmpFrDpew8qyUhY9icWseZXGRTmlZbHyyR9mtoNdgzn
+# wdSRkBnkF97WpkqvHN//3vp5/67yvMoHw/NINFSGtnb18OLHudRbTnMNuLQ/FU/z
+# Ts0qzi10yZainHIFaMXEJBfgaHB5/wCL5vvpeWPZKi8hUVpSfxIJzRnVEepqTkwd
+# WksXaab5B7vnF0PPsQMyQ9dhTkM7GmY45dOsfjVlByo6ZyiHzgIUTHs=
 # SIG # End signature block

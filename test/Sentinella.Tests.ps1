@@ -114,6 +114,57 @@ Describe 'ProgrammaProprietario' {
     }
 }
 
+Describe 'ClassificaFirma' {
+    It 'distingue i quattro casi' {
+        ClassificaFirma 'Valid' | Should Be 'valida'
+        ClassificaFirma 'NotSigned' | Should Be 'assente'
+        ClassificaFirma 'HashMismatch' | Should Be 'manomessa'
+        ClassificaFirma 'UnknownError' | Should Be 'non-verificabile'
+        ClassificaFirma 'NotTrusted' | Should Be 'non-verificabile'
+    }
+}
+
+Describe 'CandidatiEseguibile (quale .exe rappresenta un programma)' {
+    $git = @(
+        [pscustomobject]@{ Nome = 'C:\Program Files\Git\git-bash.exe'; Prodotto = 'Git for Windows The Git Development Community' },
+        [pscustomobject]@{ Nome = 'C:\Program Files\Git\unins000.exe'; Prodotto = 'Git Setup' }
+    )
+    It 'il disinstallatore non viene mai scelto' {
+        $c = CandidatiEseguibile 'Git' '' $git $false
+        ($c -join ',') | Should Be 'C:\Program Files\Git\git-bash.exe'
+    }
+    It 'in una cartella condivisa si scelgono solo gli .exe che citano il programma' {
+        $condivisa = @(
+            [pscustomobject]@{ Nome = 'E:\Programmi\Benchmark.exe'; Prodotto = '' },
+            [pscustomobject]@{ Nome = 'E:\Programmi\WinRAR.exe'; Prodotto = 'WinRAR win.rar GmbH' }
+        )
+        $c = CandidatiEseguibile 'WinRAR 7.23 (64-bit)' '' $condivisa $true
+        ($c -join ',') | Should Be 'E:\Programmi\WinRAR.exe'
+    }
+    It 'in una cartella condivisa un .exe estraneo non viene preso nemmeno come ripiego' {
+        $c = @(CandidatiEseguibile 'Equalizer APO' '' @([pscustomobject]@{ Nome = 'E:\Programmi\dbeaver.exe'; Prodotto = 'DBeaver Community' }) $true)
+        $c.Count | Should Be 0
+    }
+    It 'se un .exe cita il programma, quelli estranei non vengono aggiunti' {
+        $misti = @(
+            [pscustomobject]@{ Nome = 'E:\Programmi\WinRAR.exe'; Prodotto = 'WinRAR' },
+            [pscustomobject]@{ Nome = 'E:\Programmi\Benchmark.exe'; Prodotto = '' }
+        )
+        (CandidatiEseguibile 'WinRAR 7.23 (64-bit)' '' $misti $false) -join ',' | Should Be 'E:\Programmi\WinRAR.exe'
+    }
+    It 'senza nessun .exe che lo cita, in una cartella sua, si usa il ripiego' {
+        (CandidatiEseguibile 'Programma Strano' '' @([pscustomobject]@{ Nome = 'C:\PS\avvia.exe'; Prodotto = '' }) $false) -join ',' | Should Be 'C:\PS\avvia.exe'
+    }
+    It 'l''eseguibile dell''icona ha la precedenza' {
+        $c = CandidatiEseguibile 'PostgreSQL 17' 'C:\PG\bin\pgAdmin4.exe' @([pscustomobject]@{ Nome = 'C:\PG\uninstall-postgresql.exe'; Prodotto = 'PostgreSQL' }) $false
+        ($c -join ',') | Should Be 'C:\PG\bin\pgAdmin4.exe'
+    }
+    It 'un''icona che e'' un disinstallatore viene ignorata' {
+        $c = @(CandidatiEseguibile 'X' 'C:\X\unins000.exe' @() $false)
+        $c.Count | Should Be 0
+    }
+}
+
 Describe 'AnalizzaWhea' {
     $t0 = Get-Date '2026-11-23 00:53:02'
     It 'nessun errore' {

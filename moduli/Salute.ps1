@@ -223,39 +223,63 @@ function C_ProgrammiRecenti {
     if ($rec.Count -eq 0) { Ok "Nessun programma installato negli ultimi 30 giorni"; return }
     $senzaFirma = 0
     foreach ($x in ($rec | Sort-Object Data -Descending | Select-Object -First 25)) {
-        $percorsoExe = TrovaEseguibileInstallato $x
-        if (-not $percorsoExe) { Nota ("   {0:dd/MM/yyyy}  {1}" -f $x.Data, $x.Nome); continue }
-        if (FirmaValida $percorsoExe) { Nota ("   {0:dd/MM/yyyy}  {1}  -  firmato da {2}" -f $x.Data, $x.Nome, (NomeFirmatario $percorsoExe)); continue }
-        $noto = ComponenteNoto $x.Nome
-        if ($noto) { Nota ("   {0:dd/MM/yyyy}  {1}  -  non firmato, ma conosciuto: {2}" -f $x.Data, $x.Nome, $noto); continue }
-        if ($script:conferme.ContainsKey($x.Nome) -and $script:conferme[$x.Nome].risposta -eq 'si') {
-            Nota ("   {0:dd/MM/yyyy}  {1}  -  non firmato, ma confermato da te il {2}" -f $x.Data, $x.Nome, $script:conferme[$x.Nome].quando); continue
+        $candidati = @(EseguibiliInstallati $x)
+        if ($candidati.Count -eq 0) { Nota ("   {0:dd/MM/yyyy}  {1}" -f $x.Data, $x.Nome); continue }
+        # Basta UN eseguibile del programma con firma valida: e' l'editore a
+        # garantire per il programma, non per ogni singolo file accessorio.
+        $stati = @($candidati | ForEach-Object { [pscustomobject]@{ Exe = $_; Firma = (ClassificaFirma ([string](FirmaDi $_).Status)) } })
+        $valido = $stati | Where-Object { $_.Firma -eq 'valida' } | Select-Object -First 1
+        if ($valido) { Nota ("   {0:dd/MM/yyyy}  {1}  -  firmato da {2}" -f $x.Data, $x.Nome, (NomeFirmatario $valido.Exe)); continue }
+        $rotto = $stati | Where-Object { $_.Firma -eq 'manomessa' } | Select-Object -First 1
+        if ($rotto) {
+            Allarme ("{0:dd/MM/yyyy}  {1}  -  un suo file e' stato MODIFICATO dopo la firma dell'editore: {2}  [SHA256 {3}]" -f $x.Data, $x.Nome, $rotto.Exe, (Impronta $rotto.Exe)); continue
         }
+        $daGuardare = $stati[0]
+        $nonVerif = $stati | Where-Object { $_.Firma -eq 'non-verificabile' } | Select-Object -First 1
+        if ($nonVerif) { $daGuardare = $nonVerif }
+        $come = 'NON firmato digitalmente'
+        if ($daGuardare.Firma -eq 'non-verificabile') { $come = "firma presente ma NON verificabile (certificato di un ente che Windows non riconosce, o certificati del PC non aggiornati)" }
+        $noto = ComponenteNoto $x.Nome
+        if ($noto) { Nota ("   {0:dd/MM/yyyy}  {1}  -  {2}, ma conosciuto: {3}" -f $x.Data, $x.Nome, $come, $noto); continue }
+        if ($script:conferme.ContainsKey($x.Nome) -and $script:conferme[$x.Nome].risposta -eq 'si') {
+            Nota ("   {0:dd/MM/yyyy}  {1}  -  {2}, ma confermato da te il {3}" -f $x.Data, $x.Nome, $come, $script:conferme[$x.Nome].quando); continue
+        }
+        $senzaFirma++
+        $t = "{0:dd/MM/yyyy}  {1}  -  {2} ({3})" -f $x.Data, $x.Nome, $come, $daGuardare.Exe
         if ($script:conferme.ContainsKey($x.Nome) -and $script:conferme[$x.Nome].risposta -eq 'no') {
-            $senzaFirma++
-            Attenzione ("{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente, gia' segnalato come non riconosciuto il {2}" -f $x.Data, $x.Nome, $script:conferme[$x.Nome].quando); continue
+            Attenzione ("$t - gia' segnalato come non riconosciuto il {0}" -f $script:conferme[$x.Nome].quando); continue
         }
         # Nessuna domanda qui: finisce nella lista unica di fine scansione.
-        $senzaFirma++
-        $t = "{0:dd/MM/yyyy}  {1}  -  NON firmato digitalmente" -f $x.Data, $x.Nome
         Attenzione $t
         $ed = ''; if ($x.Editore) { $ed = ", editore dichiarato: $($x.Editore)" }
         ProponiConferma 'programma' "programma:$($x.Nome)" $x.Nome ("programma installato il {0:dd/MM/yyyy}{1}" -f $x.Data, $ed) 1 $t
     }
     if ($rec.Count -gt 25) { Nota "Altri $($rec.Count - 25) programmi recenti non controllati: l'elenco mostra solo i 25 piu' nuovi." }
     if ($senzaFirma -eq 0) { Ok "$($rec.Count) programmi installati di recente, nessuno sconosciuto e senza firma" }
-    else { Nota "$senzaFirma senza firma digitale (segnalati sopra): non e' detto siano un problema, ma sono quelli su cui vale la pena essere sicuri di averli installati tu." }
+    else { Nota "$senzaFirma senza firma digitale valida (segnalati sopra): non e' detto siano un problema, ma sono quelli su cui vale la pena essere sicuri di averli installati tu." }
 }
-function TrovaEseguibileInstallato($x) {
-    if ($x.Icona) {
-        $p = ([string]$x.Icona -replace ',-?\d+$', '').Trim('"')
-        if ($p -match '(?i)\.exe$' -and (Test-Path -LiteralPath $p)) { return $p }
+# Gli eseguibili su cui giudicare la firma di un programma installato
+# (la scelta vera e propria sta in CandidatiEseguibile, in Analisi.ps1).
+function EseguibiliInstallati($x) {
+    $icona = ([string]$x.Icona -replace ',-?\d+$', '').Trim('"')
+    if (-not ($icona -and (Test-Path -LiteralPath $icona -PathType Leaf))) { $icona = '' }
+    $file = @()
+    $cartellaCondivisa = $false
+    $loc = ([string]$x.Loc).Trim('"').TrimEnd('\')
+    if ($loc -and (Test-Path -LiteralPath $loc -PathType Container)) {
+        # Una cartella che fa da casa a piu' programmi (es. E:\Programmi, o la
+        # radice di un disco): li' un .exe qualsiasi non dice niente su QUESTO programma.
+        $vicini = @(ProgrammiInstallati | Where-Object { ([string]$_.Loc).Trim('"').TrimEnd('\') -ieq $loc })
+        $cartellaCondivisa = ($vicini.Count -gt 1 -or $loc -match '^[A-Za-z]:$')
+        foreach ($c in @($loc, (Join-Path $loc 'bin'))) {
+            if (-not (Test-Path -LiteralPath $c -PathType Container)) { continue }
+            foreach ($e in (Get-ChildItem -LiteralPath $c -Filter '*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 40)) {
+                $v = $e.VersionInfo
+                $file += [pscustomobject]@{ Nome = $e.FullName; Prodotto = "$($v.ProductName) $($v.CompanyName) $($v.FileDescription)" }
+            }
+        }
     }
-    if ($x.Loc -and (Test-Path -LiteralPath $x.Loc)) {
-        $exe = Get-ChildItem -LiteralPath $x.Loc -Filter '*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($exe) { return $exe.FullName }
-    }
-    return $null
+    return @(CandidatiEseguibile $x.Nome $icona $file $cartellaCondivisa | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
 }
 
 function C_Integrita {
@@ -279,8 +303,8 @@ function C_Integrita {
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAFfHrYy/wSRw+V
-# 6I5o9VvVZ6WCSSEtcPZmjT436AauLKCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCQGaQZNy/JLpfr
+# XzYllsgepWA5HCMtPVqZ51pU8OzjfaCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -306,14 +330,14 @@ function C_Integrita {
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAh3OM6MoE4j5If
-# 89sAUKnmGxO+XnV/DhqqJBy49h4s4TANBgkqhkiG9w0BAQEFAASCAYBFj1kRJ7PN
-# GUkUscpCLVNwTjogGc6Zj4/rCkCzNC3cQFNJqy1OTl27HuKc31RMiJaIrsg1eSSN
-# SpqNWkp7299dT/2r2zJ7aRgGqYe4S5oisLVCGaiV9eJUoU8oH9dDrzKuzP7Y4f+S
-# suTG9cLaiA6fjCHcz6L/hMJD8CIExvRvMiPD5ANJjtqihIbaT0liV9tpzATxWKDq
-# 2jMpaX6sGuHhsq1kqb0nCDPrX91n8R9jttOHaKwqt1GGdJX+xQ0v89VdwIt2xb0D
-# ntsumyTfcVrsTvJ2JZPN2K6qmk5Wkm2dcGIGz0+C4zz7BXDflHLZKCSQbnODtnLq
-# RBOAOTpFjpl9Na+DsgZJ57gpCsJ/Vp3rmLmpz5+Fmg8dg2i/dbidHMeUELQ1vd/Y
-# JVjyqKXggBEpgewyZHOpmi+V+wT4DIMYpd/qDDu+4rt3D3psrEoWOJP/vaIjnplW
-# LCN6Jdkp5zKvSUUxzLbkgIBNAz6pEzVDA1/jMHYfXuaIvtljdupJGlA=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCBwfzwd/3820IJq
+# 6/boMmq5tbYi7z9wYxwb45BX+SueRzANBgkqhkiG9w0BAQEFAASCAYA2Bt+Hhnoh
+# Z8ArLxBHQgetgiLEQ3Dk4waurQ/itPstrdmDdnplyup5Kt4/E51j9b1ADyFC5CmO
+# rl3Y20oqwyOtHY+J/0u0XoekJZlv9Hn8g89XpXM0E8QsPBTTGGcXjPs+isamzvn5
+# GguLiLQ8qlLXpHPMi9Gxxm1JLOWWG0VeAy2YIIxOr56vqUfwLVhAr+0x1xRFMYNm
+# 3wVZRhlTFow4YCJQLQhmcWCVMAkKNWBNKtVrn3BsyECwUVWTPf0kuFcJcRnIquU5
+# 8XzX/5+OERX3zewsO9ueS23UIrJ7v9XqGvGOBNNTcU79xl3iLsYofVkDoPA4oR6w
+# tcT1GnuvvJdFPnDgu3w/DtaTrrzscZx7DGomMi7dc6MWqBJaYmcZwTZpNEZ0tqRX
+# O8mUKkPgyQLPxNAUFSWOY3oQ1dzBJiO/Bzbk9aeSGgTLKlheRd5CgbK4Be5C7uT/
+# /Mk7oatXhlRXDFuXFCI+FH0paWwiO0BQQHgEWbWYNycd2Psadk0YP4A=
 # SIG # End signature block

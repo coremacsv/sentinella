@@ -157,6 +157,56 @@ function InterpretaRisposta([string]$testo, [int]$quanti) {
     return @{ Azione = 'scelti'; Numeri = $numeri }
 }
 
+# Traduce lo stato della firma di Windows in tre casi molto diversi tra loro:
+#   'valida'          firma intatta di un editore riconosciuto
+#   'manomessa'       c'era una firma, ma il file e' stato cambiato dopo: grave
+#   'non-verificabile' firma presente e intatta, ma Windows non riesce a
+#                     risalire a un certificato di cui fidarsi (succede su
+#                     PC con i certificati radice non aggiornati)
+#   'assente'         nessuna firma
+# Fino alla v3.1 tutto cio' che non era 'valida' veniva chiamato "non firmato".
+function ClassificaFirma([string]$stato) {
+    switch ($stato) {
+        'Valid'        { return 'valida' }
+        'HashMismatch' { return 'manomessa' }
+        'NotSigned'    { return 'assente' }
+        'UnknownError' { return 'non-verificabile' }
+        'NotTrusted'   { return 'non-verificabile' }
+        'Incompatible' { return 'non-verificabile' }
+        default        { return 'illeggibile' }
+    }
+}
+
+# Sceglie quali eseguibili guardare per giudicare se un programma installato
+# e' firmato. Prima della v3.2 si prendeva il primo .exe in ordine alfabetico
+# della cartella: poteva essere il disinstallatore (spesso non firmato anche
+# quando il programma lo e') o, in una cartella condivisa da piu' programmi,
+# l'eseguibile di un ALTRO programma. Ora:
+#   1. l'eseguibile dell'icona, se e' un .exe
+#   2. gli .exe della cartella (e della sottocartella bin) i cui dati interni
+#      citano il nome del programma
+#   3. solo se la cartella non e' condivisa, gli altri .exe
+#   I disinstallatori vengono esclusi.
+# $file: oggetti con Nome (percorso) e Prodotto (nome prodotto + azienda dai dati interni).
+function CandidatiEseguibile([string]$nomeProgramma, [string]$icona, $file, [bool]$cartellaCondivisa) {
+    $scelti = New-Object System.Collections.ArrayList
+    if ($icona -match '(?i)\.exe$' -and $icona -notmatch '(?i)\\unins[^\\]*\.exe$|uninstall[^\\]*\.exe$') { [void]$scelti.Add($icona) }
+    $parole = @(([string]$nomeProgramma -split '[\s\-_.()]+') | Where-Object { $_.Length -ge 3 -and $_ -notmatch '^\d' -and $_ -notmatch '^(?i)(the|for|and|bit|x64|x86|version)$' })
+    $altri = @()
+    foreach ($f in @($file)) {
+        $n = [string]$f.Nome
+        if ($n -match '(?i)\\(unins\d*|uninstall[^\\]*|uninst[^\\]*)\.exe$') { continue }
+        if ($scelti -contains $n) { continue }
+        $cita = $false
+        foreach ($w in $parole) { if ([string]$f.Prodotto -and ([string]$f.Prodotto).IndexOf($w, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $cita = $true; break } }
+        if ($cita) { [void]$scelti.Add($n) } else { $altri += $n }
+    }
+    # Gli .exe che non citano il programma servono solo come ripiego, quando
+    # nessun file lo cita e la cartella e' sua soltanto.
+    if ($scelti.Count -eq 0 -and -not $cartellaCondivisa) { foreach ($a in $altri) { [void]$scelti.Add($a) } }
+    return @($scelti | Select-Object -First 6)
+}
+
 # Un aggiornamento cambia solo il numero di versione nel percorso: non e' una voce nuova.
 function SenzaVersione($voce) { return ([string]$voce -replace '(?<=\\)\d+(\.\d+)+(?=\\)', '*') }
 
@@ -241,8 +291,8 @@ function ConvertiPercorsoDispositivo([string]$p, [hashtable]$mappa) {
 # SIG # Begin signature block
 # MIIHRQYJKoZIhvcNAQcCoIIHNjCCBzICAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCqYhI0Gdk2UYEk
-# saZQ5w94r65SYldnEaOtu0x0udzD5aCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBRAbsnVGvopRR7
+# 398As+Gze0PAwahQEOWEKYLmep9RmqCCBCowggQmMIICjqADAgECAhBsFNOb1/0T
 # iEmLgLsWwl8pMA0GCSqGSIb3DQEBCwUAMCsxKTAnBgNVBAMMIFNlbnRpbmVsbGEg
 # LSBmaXJtYSBjb2RpY2UgKGxvenkpMB4XDTI2MTEyNDA5MTQ1NVoXDTMxMTEyNDA5
 # MjQ1NVowKzEpMCcGA1UEAwwgU2VudGluZWxsYSAtIGZpcm1hIGNvZGljZSAobG96
@@ -268,14 +318,14 @@ function ConvertiPercorsoDispositivo([string]$p, [hashtable]$mappa) {
 # PzArMSkwJwYDVQQDDCBTZW50aW5lbGxhIC0gZmlybWEgY29kaWNlIChsb3p5KQIQ
 # bBTTm9f9E4hJi4C7FsJfKTANBglghkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEM
 # MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
-# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCAAqOeXRkAzSzOU
-# W3AoZq0DtvCgA5lTXOliIU6ZX1H7GzANBgkqhkiG9w0BAQEFAASCAYClBDGl9vHJ
-# wwssb1VLeFHQQByAiCASocuuJ4Lzj3wrbqQemYl97njALHFxgIzrPVKZkHYCeYuB
-# pTmUmh8nY54LGWBxi38ShKLqNO/tk4xLtLYBEl3wV9VJdG5TmajoPaaLTsrG9uwF
-# au6ryRlz3GPTiTiqdsUpItZG+bWcrwgZPrjnb4IfZp4EkYvfzufZKPeKDAC89tyf
-# XkeFcWk2GiOHdwlaH0qLkvd1PeOyMuVhvtfsoMHUbRB8UDiWXTQb5BJvFoAFsK6T
-# Iw7Ad7TvrMoun88QtKwevTCAVkhK6xiPgdYqk+KPJROIoHnzV0ltRYq60WC5l57V
-# gAkFKeJw6g5t/KiFI+P2l8wcyksnlrLhbka46XCHuySqI6RIt9S4GUZiltoMT1by
-# mhGsMD4Y2paFDDI4k6L0LkhqUHb2YBLR70WQcPLWEwCTJuW265RFSMKOIQHJBAbg
-# 2Pl8A3s1oTEh0TAqb5d2+HYbmmhEpbY92cT24aVtaZTOdvlQQyOohtk=
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEiBCBr/7nS2u7Qrnrf
+# n0eO1DuNkg1TxndQtKJbZ1Qd9V1RGzANBgkqhkiG9w0BAQEFAASCAYBidvl1RYAt
+# RKj/tsEm6xsifXG1x+FI+TbQqZn/2Qj0AnzyMrWq+Ak6xbI4USv7HRZv6FLtx9B7
+# JEJzVgyMvnNYDxYMt2xdIa1AkxjIPEkCmrc6NEYW05uLFTrd2itsqgW3VHhIvF4j
+# q3o8qfZffV7NYRunzzgqnuNQgl7vq8XN6rf2uH4lS2gUYSVyqBdedRsDhvQKYQ/B
+# ES5E5Dc3RNx+STE4/97K60AN5NfPJF1365/UoMGgvxQScdDgL6RI/skLKbgkZWwQ
+# 0nLrLpZD2qdatSSs4ARKLrcYVCj/kB6h4Nv7VOLFu96oN+s1jaaQ6ALMMzfNBqn6
+# yaHX1bcImDhguP1TWQABnjQdJja/dJ3+R2L3onZ/Gonzcqq1lY/b6DkIfqYOJprV
+# vEHdOFxt5WHdi+Nb8e7g8ySbrb91QI8xFvrts+hKktUcQDcG5NpCOul8RkzpldFG
+# 8Gpqz2gZeji+8svtAmVLfCM+mQD0Tz1FuBvh4BIHASSGuzU4criGrAU=
 # SIG # End signature block
